@@ -134,8 +134,12 @@ previous version of an object. Google shipped
 [KHI](https://github.com/GoogleCloudPlatform/khi) as a separate timeline viewer
 because no dashboard does history. Komodor sells this commercially.
 
-History requires storage, and every existing tool is a stateless viewer. This is
-the structural reason the gap persists.
+The assumption everyone makes is that history requires a database, which is why
+no free tool has one and why Komodor charges for it. The assumption is wrong.
+Kubernetes already retains ReplicaSets, ControllerRevisions, Helm release
+secrets, pod termination states, and recent events. The history is sitting in the
+cluster and no tool assembles it. That is the real gap, and closing it needs no
+storage at all. See [05-architecture.md](05-architecture.md).
 
 ### 3. Effective configuration
 

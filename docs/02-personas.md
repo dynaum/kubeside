@@ -133,10 +133,18 @@ needs it.
 
 What kubeside gives her
 
-Persistent event and change history in local storage, so the timeline survives
-the Kubernetes event TTL. An incident view scoped to a time window. Prod
-guardrails: distinct color, read-only by default, typed-name confirmation for
-anything destructive, and a persistent banner naming the environment.
+A timeline assembled from what the cluster already holds: the last ten rollouts
+from ReplicaSets, Helm release history, previous crash reasons from pod
+`lastState`, and recent warnings. She opens kubeside cold at 03:00 and the axis
+is already populated, with a visible marker where its knowledge ends so she never
+mistakes "not known" for "nothing happened". An incident view scoped to a time
+window. Prod guardrails: distinct color, read-only by default, typed-name
+confirmation for anything destructive, and a persistent banner naming the
+environment.
+
+The gap she carries: a ConfigMap changed three hours before she opened the tool
+leaves no trail in Kubernetes, so kubeside cannot show it. Documented rather than
+papered over.
 
 Success metric
 
@@ -270,7 +278,7 @@ input rather than an error condition.
 | Cluster-wide read | Diego, Rafael in qa | Full app discovery across namespaces |
 | Namespace-scoped read | Ana, Bruno, Clara, most prod access | App discovery falls back to a configured namespace list. No cluster-scope list calls at startup. |
 | No exec | Ana and Bruno in prod | Exec control renders disabled, tooltip naming `pods/exec` |
-| Break-glass write | Marina during an incident | Write controls unlock, every action logged to the local timeline |
+| Break-glass write | Marina during an incident | Write controls unlock, every action logged to the session timeline |
 
 Three rules follow:
 

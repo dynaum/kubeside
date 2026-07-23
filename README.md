@@ -41,6 +41,11 @@ context, and runs exec credential plugins natively. If `kubectl` works, kubeside
 works. The file is read-only input: kubeside never writes to it, never copies
 credentials, and never sends anything to a remote service.
 
+No database either. kubeside writes nothing to disk. The timeline is assembled
+from history Kubernetes already keeps, in ReplicaSets, ControllerRevisions, Helm
+release secrets, and pod termination states, then extended live while the process
+runs. Stop the server and nothing is left behind.
+
 ## Documentation
 
 | Doc | Contents |

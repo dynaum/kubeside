@@ -35,15 +35,23 @@ second tab.
 
 The differentiator. Serves Marina.
 
-- Event ingestion and persistence, surviving the Kubernetes event TTL
-- Change detection over informer deltas
+- History reconstruction from ReplicaSets, ControllerRevisions, Helm release
+  secrets, pod `lastState`, and events
+- Live event ingestion and change detection over informer deltas
 - Screen 2: app detail with the timeline
+- Horizon markers: session start, and where reconstruction ran out, with cause
 - Actor attribution from managedFields
 - Time-range selection binding logs to the timeline window
-- SQLite storage with retention by risk
+- Session ring buffers with a byte cap and oldest-first eviction
 
-Exit criteria: "why did my pod restart 40 minutes ago" is answerable after the
-Kubernetes event has expired.
+No storage layer. kubeside writes nothing to disk, which removes SQLite, schema
+migrations, retention policy, and the whole system-of-record question from the
+project. Decision recorded 2026-07-22 in
+[04-multi-cluster.md](04-multi-cluster.md).
+
+Exit criteria: opening kubeside cold against a cluster it has never seen produces
+a populated timeline covering the last ten rollouts, with its knowledge boundary
+visibly marked.
 
 ## M3. Environments
 

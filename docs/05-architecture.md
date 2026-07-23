@@ -37,11 +37,11 @@ cmd/kubeside          entrypoint, flags, browser launch
 internal/clusters     ClusterManager, per-context connection lifecycle
 internal/informers    typed informer factories, tiered watch scoping
 internal/apps         grouping engine: resources to applications
-internal/timeline     change detection, event ingestion, actor attribution
+internal/timeline     history reconstruction, event ingestion, actor attribution
 internal/config       resolved configuration merge with provenance
 internal/logs         multi-pod stream merge, backpressure, ring buffer
 internal/metrics      source interface: metrics-server, prometheus, none
-internal/store        SQLite, per-context partitioning, retention
+internal/session      in-memory ring buffers, eviction, horizon tracking
 internal/api          HTTP + websocket handlers
 web/                  React frontend, embedded via embed.FS
 ```
@@ -75,13 +75,18 @@ everything downstream.
 
 ### Timeline
 
-Two ingestion paths:
+Three ingestion paths, in this order.
 
-1. Kubernetes Events, watched and persisted immediately, since the default TTL of
-   one hour destroys exactly the evidence an incident needs.
-2. Change detection over informer deltas. Each workload update diffs against the
-   previous stored revision. Meaningful transitions become timeline entries:
-   image change, replica change, config reference change, probe change.
+1. Reconstruction from the cluster, on demand. Kubernetes already retains
+   substantial history and no tool assembles it. See the next section.
+2. Kubernetes Events, watched live for the duration of the session.
+3. Change detection over informer deltas. Each workload update diffs against the
+   previous observed revision in the session buffer. Meaningful transitions
+   become timeline entries: image change, replica change, config reference
+   change, probe change.
+
+Path 1 fills the axis before the session began. Paths 2 and 3 extend it forward
+while kubeside runs.
 
 Actor attribution reads `metadata.managedFields`, mapping the field manager to a
 label: `kubectl`, `helm`, `argocd`, `hpa`, or a raw manager name. A `kubectl`
@@ -107,22 +112,75 @@ Every sample carries its source in the API response, and the UI labels it. The
 Freelens defect class where a value silently doubles becomes visible instead of
 mysterious.
 
-### Storage
+### History, without storage
 
-SQLite through `modernc.org/sqlite`, avoiding cgo so cross-compilation stays
-trivial.
+kubeside writes nothing to disk. No database, no cache file, no local record of
+what happened. When the process exits, everything it observed is gone.
 
-```sql
-contexts(id, cluster_uid, name, env, last_seen)
-apps(id, context_id, name, kind, namespace, first_seen, last_seen)
-revisions(id, app_id, observed_at, image, replicas, config_hash, spec_json)
-timeline(id, app_id, at, kind, actor, summary, detail_json)
-config_snapshots(id, revision_id, resolved_json)
-```
+This is a product decision, not a limitation to work around. A tool holding
+cluster credentials earns trust with a one-sentence guarantee, and "writes
+nothing, sends nothing" is that sentence. It also keeps `--serve` mode from
+becoming a system of record with backup, retention, and audit obligations
+kubeside is not designed to carry.
 
-Retention by environment risk: 7 days low, 30 days high. A vacuum runs on
-startup. Everything is a cache and is safe to delete, which is stated in the
-docs so nobody treats it as a system of record.
+The timeline survives because Kubernetes already stores history. Nobody assembles
+it, which is the actual gap.
+
+| Source | Recovers | Typical depth |
+| --- | --- | --- |
+| ReplicaSets owned by a Deployment | Deploy history with image tags and timestamps | `revisionHistoryLimit`, default 10 |
+| ControllerRevisions | Same for StatefulSets and DaemonSets | Default 10 |
+| Helm release secrets (`sh.helm.release.v1.*`) | Release history with chart version, timestamp, and values | Default max history 10 |
+| Argo CD application status | Sync history with git revisions | Per Argo config |
+| Pod `status.containerStatuses[].lastState.terminated` | Previous crash reason and exit code | Last termination |
+| Pod `restartCount` | Restart totals per container | Pod lifetime |
+| `deployment.kubernetes.io/revision` annotations | Rollout ordering | Matches ReplicaSets |
+| Events in etcd | Recent warnings, probe failures, evictions | apiserver `--event-ttl`, default 1h |
+
+Reconstruction runs on demand when an app detail view opens, not at startup, so
+launch stays cheap. Results are memoized for the session.
+
+An important property: two developers opening kubeside see the same
+reconstructed timeline, because both read the same cluster. A local database
+could never guarantee that.
+
+### The session buffer
+
+Live observations accumulate in memory for the duration of the process.
+
+- Ring buffer per app, capped by entry count and by total bytes
+- Eviction is oldest-first, and eviction is visible rather than silent
+- Nothing is written anywhere on eviction
+
+Retention did not disappear, it moved from disk to RAM with a smaller budget. The
+cap is enforced from the first release rather than discovered at 400MB.
+
+### Horizon honesty
+
+The timeline always renders where its knowledge ends.
+
+- A marker labeled "kubeside started here" at session start
+- A second marker where reconstruction depth runs out, labeled with the reason,
+  for example "older rollouts pruned by revisionHistoryLimit"
+- Events beyond the apiserver TTL are marked absent, never rendered as quiet
+
+A timeline that silently shows a partial picture during an incident is worse than
+one that admits its edges. Marina at 03:00 must never mistake "nothing happened"
+for "kubeside was not watching".
+
+### What is genuinely unavailable
+
+Stated plainly so nobody expects otherwise:
+
+- ConfigMap and Secret change history before the session, since Kubernetes keeps
+  no revision trail for them unless the team uses immutable versioned names
+- Events older than the apiserver TTL
+- Any comparison against yesterday
+
+The first is the real cost. A config change three hours before launch is a common
+root cause and kubeside will not see it. Partial mitigation: the current
+ConfigMap carries `metadata.resourceVersion` and a last-applied annotation when
+`kubectl apply` was used, which at least dates the most recent change.
 
 ### Transport
 
@@ -162,8 +220,8 @@ the whole game:
 1. kubeside never writes to kubeconfig. Not to add a context, not to refresh a
    token, not to set `current-context`. The file is read-only input.
 2. kubeside never copies credentials anywhere. Tokens live in process memory for
-   the session. The SQLite cache stores resource history only, never secrets and
-   never credentials.
+   the session and die with the process. Nothing reaches disk, since kubeside
+   writes no files at all beyond the config the user edits themselves.
 3. kubeside never sends anything to a remote service. No telemetry in v1, and any
    later telemetry ships opt-in with the payload documented.
 
@@ -221,12 +279,21 @@ Numbers, because "feels fast" is not testable.
 | Metric | Budget |
 | --- | --- |
 | Cold start to first paint | 300ms |
-| Cold start to app list rendered from cache | 500ms |
+| First environment's app list rendered | 1.5s |
 | Reconcile against a live 500-pod cluster | 3s |
+| Timeline reconstruction for one app | 800ms |
 | Log stream first line | 400ms |
-| Memory, three connected clusters | 250MB |
+| Memory, three connected clusters, 8-hour session | 350MB |
+| Session buffer cap, all apps combined | 100MB, oldest-first eviction |
 | Binary size | 40MB |
 | Apiserver load | Zero polling. Informers only. |
+
+With no cache on disk, launch is bounded by the slowest cluster connection. The
+promotion view fills in progressively, per environment, each cell showing its own
+loading state. A prod cluster behind a VPN never blocks qa from rendering.
+
+Environment panels render in `current-context` order, so the environment the
+developer works in most appears first.
 
 ## Distribution
 

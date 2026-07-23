@@ -33,7 +33,11 @@ Inference order on first launch:
 3. Anything unmatched lands in an `unclassified` environment, treated with prod
    guardrails until the user says otherwise. Unknown risk defaults to high risk.
 
-Persisted to `~/.config/kubeside/config.yaml`:
+Inference runs fresh on every launch and is never written anywhere. A file exists
+only if the user creates one, at `~/.config/kubeside/config.yaml`, and kubeside
+writes to it only on an explicit save from settings. The "writes nothing to disk"
+guarantee covers observed data: no history, no cache, no credentials, no
+telemetry. A config file the user chose to create is a different thing.
 
 ```yaml
 environments:
@@ -76,14 +80,15 @@ environments that does not hold.
 
 Rules:
 
-1. Lazy connect. A context connects on first use, never at startup. Launch
-   renders the app list from the last cached snapshot immediately, then
-   reconciles.
+1. Lazy connect. A context connects on first use, never all at once at startup.
+   The environment matching `current-context` connects first, so the developer's
+   usual workspace renders while the others are still handshaking.
 2. Tiered watching. The active environment gets full informers. Background
    environments get a reduced set: workloads and events only, no pods, no
    configmaps.
 3. Idle disconnect. A context with no view referencing it for fifteen minutes
-   drops its informers and keeps its cache.
+   drops its informers and retains its last in-memory snapshot, which then
+   renders with an age label until the context reconnects.
 4. Circuit breaker per context. An unreachable cluster fails its own panel and
    never blocks the page. A VPN-only prod cluster is the normal case, not an
    error state.
@@ -167,7 +172,7 @@ Layers, all active at once:
    typing the resource name, following the pattern people already know from
    GitHub repository deletion.
 5. Break-glass. A prod write in `break-glass` mode unlocks for fifteen minutes,
-   requires a stated reason, and writes an entry to the local timeline. P3 gets
+   requires a stated reason, and writes an entry to the session timeline. Marina gets
    access under pressure without prod being permanently armed.
 6. Blast radius preview. Before any write, show what changes, how many pods are
    affected, and the equivalent kubectl command.
@@ -188,17 +193,25 @@ must reflect that per environment rather than globally.
   one in prod sees exactly that.
 - No cluster-scoped list is ever a precondition for loading.
 
-## Storage and history per environment
+## History per environment
 
-History is per context, since an app in qa and the same app in prod have
-unrelated timelines.
+kubeside stores nothing on disk. History comes from the cluster itself,
+reconstructed on demand, plus whatever the session observes while running. The
+mechanism is in [05-architecture.md](05-architecture.md).
 
-SQLite schema partitions on `context_id`. Retention differs by risk: 7 days for
-low risk, 30 days for high risk, since prod history matters more and prod changes
-less often.
+Two consequences specific to multi-cluster:
 
-The promotion view reads from cache, which is why launch renders instantly even
-with three clusters behind a VPN.
+1. History is per context by construction, since each cluster holds its own
+   ReplicaSets, ControllerRevisions, and Helm release secrets. No partitioning
+   logic is needed, because the data was never merged.
+2. Reconstruction depth differs per environment, and for a useful reason. Prod
+   changes less often than qa, so the same `revisionHistoryLimit` of 10 reaches
+   back weeks in prod and perhaps a day in qa. The timeline labels the reach it
+   achieved rather than assuming a fixed window.
+
+Launch has no cache to read from, so the promotion view fills in per environment
+as each connection completes. Each cell carries its own loading state and a
+cluster behind a VPN never blocks the rest of the grid.
 
 ## Failure modes to handle explicitly
 
@@ -211,14 +224,23 @@ with three clusters behind a VPN.
 | Same app name, unrelated services in two environments | Config `apps.match` overrides. A mismatch warning appears when image repositories differ entirely. |
 | An environment has 40 contexts | Environment panel paginates and the promotion view aggregates, with per-context detail on expansion. |
 
+## Resolved questions
+
+3. How much history to keep on disk. Resolved 2026-07-22: none. kubeside writes
+   nothing. History is reconstructed from the cluster and buffered in memory for
+   the session only.
+4. Whether `--serve` mode history becomes shared team state. Resolved by the
+   same decision. There is no stored history to share, so kubeside never becomes
+   a system of record and never inherits backup, retention, or audit
+   obligations.
+
 ## Open questions
 
 1. Does the promotion view need a fourth column for the git SHA, resolved from an
-   image label, and where does the mapping come from?
-2. Should drift detection fire a notification, or stay passive? A notification
-   pulls the product toward alerting, which belongs to a different tool.
-3. How much history is worth keeping before SQLite growth becomes a support
-   burden on a laptop?
-4. In `--serve` mode, does history become shared team state, and if so does that
-   turn kubeside into a system of record with backup expectations?
+   image label, and where does the mapping come from? Leaning toward reading
+   `org.opencontainers.image.revision` opportunistically, showing the column only
+   when populated, and requiring no registry credentials in v1.
+2. Should drift detection fire a notification, or stay passive? Leaning passive.
+   A notification pulls the product toward alerting, which is a different tool
+   with a much harder reliability promise.
 </content>

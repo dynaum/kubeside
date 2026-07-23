@@ -69,10 +69,26 @@ Below the axis, the current state: pods with status and age, the Service and
 Ingress routing to them, and referenced config objects.
 
 Selecting a range filters everything on the page to that window, including logs.
-This is the incident workflow for P3.
+This is the incident workflow for Marina.
 
 Every change carries an actor when derivable, from the managed-fields metadata,
 so an out-of-band `kubectl edit` becomes visible rather than forensic.
+
+The axis extends backwards through history reconstructed from the cluster, not
+from anything kubeside recorded. Deploys come from ReplicaSets and
+ControllerRevisions, releases from Helm release secrets, crashes from pod
+`lastState`, and recent warnings from events still inside the apiserver TTL.
+kubeside stores nothing on disk.
+
+Two markers are mandatory, never decorative:
+
+- Where the session began, labeled "kubeside started here"
+- Where reconstruction ran out, labeled with the cause, for example "older
+  rollouts pruned by revisionHistoryLimit"
+
+Silence before those markers means "not known", and the UI says so. Rendering an
+empty axis as though nothing happened would mislead exactly the person under the
+most pressure.
 
 ### Screen 3: Resolved configuration
 
@@ -89,10 +105,10 @@ Sources merged:
 - Mounted volume paths for file-based config
 
 Secret values stay masked, with a reveal action gated on the `get` verb for that
-specific Secret, and every reveal recorded in the local timeline.
+specific Secret, and every reveal recorded in the session timeline.
 
 A second tab shows the same table diffed against another revision or another
-environment, which is the P2 job.
+environment, which is Rafael's job.
 
 ### Screen 4: Logs
 
@@ -111,8 +127,8 @@ Requirements:
 ## Cross-cutting
 
 Command palette on `cmd+k`. Every navigation and action reachable from the
-keyboard, since P2 arrives from k9s and will judge the tool on this within thirty
-seconds.
+keyboard, since Rafael arrives from k9s and will judge the tool on this within
+thirty seconds.
 
 Every view exposes "show kubectl", printing the equivalent command.
 
@@ -141,10 +157,13 @@ Behaviors to actively prevent, drawn from documented failures elsewhere:
 | Never issue a cluster-scoped list at startup | Headlamp #4051 |
 | Never run kubeconfig exec plugins in a sandbox | Headlamp #1582 |
 | Never leave secret values base64-encoded on screen | k9s #1017, #373 |
+| Never write history to disk, and never render an unknown window as empty | Decision 2026-07-22, see 04-multi-cluster.md |
 
 ## Definition of done for v1
 
 A developer with namespace-scoped read access in three clusters installs one
-binary, runs it, and within ten seconds sees every app they own across qa, stg,
-and prod, with health, running version, and a timeline of the last seven days.
+binary, runs it, and within ten seconds sees every app she owns across qa, stg,
+and prod, with health, running version, and a timeline reaching back through the
+last ten rollouts, assembled from the cluster and honest about where its
+knowledge ends.
 </content>
