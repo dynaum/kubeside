@@ -2,6 +2,7 @@ package clusters
 
 import (
 	"errors"
+	"os/exec"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -70,11 +71,23 @@ type Status struct {
 }
 
 // classify maps a connection error onto a terminal state.
+//
+// The default is unreachable, not unauthorized. Most connection failures are a
+// VPN that is off or a cluster that is down, and telling a developer their
+// credentials expired when the network is simply unavailable sends them to fix
+// the wrong thing.
 func classify(err error) State {
 	if err == nil {
 		return StateLive
 	}
 	if apierrors.IsUnauthorized(err) || apierrors.IsForbidden(err) {
+		return StateUnauthorized
+	}
+	// An exec credential plugin (aws eks get-token, gke-gcloud-auth-plugin,
+	// kubelogin) exiting non-zero is a credential failure even though it is
+	// not an apierrors type.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		return StateUnauthorized
 	}
 	var authErr *AuthError
