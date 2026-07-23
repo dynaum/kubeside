@@ -107,6 +107,13 @@ defaults:
   namespaces: []          # empty means probe: try a namespace list, else the
                           # context's own namespace, else require this list
   metrics: auto           # auto | metrics-server | prometheus | none
+
+# When one cluster holds several environments distinguished by a namespace
+# prefix, name the segments here. Anchor one segment (systems or environments)
+# so platform namespaces are not misread as tenant services.
+namespaceAxis:
+  pattern: "{env}-{system}-{service}"
+  systems: [acme]         # or environments: [sandbox1, sandbox2, ...]
 ```
 
 Cross-environment matching without config uses name plus namespace, tolerating
