@@ -10,8 +10,5 @@ web/dist/
 
 # Local
 .DS_Store
-*.db
-*.db-shm
-*.db-wal
 .env
 .env.local

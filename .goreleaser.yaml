@@ -1,0 +1,55 @@
+version: 2
+
+project_name: kubeside
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kubeside
+    main: ./cmd/kubeside
+    binary: kubeside
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/dynaum/kubeside/internal/version.Version={{.Version}}
+      - -X github.com/dynaum/kubeside/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/dynaum/kubeside/internal/version.Date={{.CommitDate}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [README.md, LICENSE]
+
+checksum:
+  name_template: checksums.txt
+
+# Homebrew tap reuses the existing dynaum/homebrew-tap repo.
+brews:
+  - repository:
+      owner: dynaum
+      name: homebrew-tap
+    homepage: https://github.com/dynaum/kubeside
+    description: A Kubernetes client scoped to the developer, not the cluster operator
+    license: Apache-2.0
+    test: |
+      system "#{bin}/kubeside", "--version"
+
+release:
+  draft: true
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
