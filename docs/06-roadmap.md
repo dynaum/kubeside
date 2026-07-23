@@ -12,7 +12,7 @@ Prove the two assumptions everything else rests on.
 - Grouping engine over a real cluster, producing an app list a human recognizes.
 
 Exit criteria: `kubeside` prints a correct app list for three contexts, in under
-500ms from cache, in a terminal. No UI.
+1.5s from first connection, in a terminal. No UI.
 
 Kill criterion: if grouping produces results developers do not recognize as their
 apps, the whole product thesis is wrong and the spike ends here.
@@ -21,8 +21,10 @@ apps, the whole product thesis is wrong and the spike ends here.
 
 The first release worth installing. Serves Ana.
 
-- Screen 1: app list, single environment, health derived and explainable
+- Screen 1: app list, single environment, health per the spec's derivation table
 - Screen 4: whole-workload log streaming, merged, filter, follow, permalink
+- Container filter with mesh sidecars hidden by default
+- Log availability edges marked: rotation, one restart back, deleted pods
 - Metrics source interface with metrics-server and none
 - Design system tokens, both themes
 - Command palette
@@ -71,10 +73,15 @@ mutates more than one environment.
 
 Completes the four screens. Serves Ana and Rafael.
 
-- Screen 3: resolved configuration with provenance per row
+- Screen 3: resolved configuration with provenance per row, one tab per
+  container
 - Secret masking with per-key permission gating and reveal logging
-- Diff against a previous revision
+- Diff against a previous revision, scoped to what ReplicaSets preserve, with
+  unrecoverable cells labeled
 - Cross-environment config diff with expected, drift, and missing classification
+- Port-forward: start, stop, and list per app, environment color on every
+  forward. Pulled into v1 because the daily loop ends with "now let me hit the
+  service", and its absence is the first thing an evaluating developer notices.
 
 Exit criteria: "works in stg, fails in prod" resolves without reading YAML.
 
@@ -98,7 +105,6 @@ Not committed. Listed so the ordering conversation happens once.
 - Prometheus metrics source
 - Argo CD and Flux awareness, showing desired versus live state
 - Git SHA resolution from image labels for the promotion view
-- Port-forward management
 - Plugin system, and only if a concrete second-party need appears first
 
 ## Permanently out

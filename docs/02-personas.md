@@ -276,15 +276,18 @@ input rather than an error condition.
 | Access pattern | Who | Requirement |
 | --- | --- | --- |
 | Cluster-wide read | Diego, Rafael in qa | Full app discovery across namespaces |
-| Namespace-scoped read | Ana, Bruno, Clara, most prod access | App discovery falls back to a configured namespace list. No cluster-scope list calls at startup. |
+| Namespace-scoped read | Ana, Bruno, Clara, most prod access | Namespace-list probe refused, discovery falls back to the context's namespace, then the configured list. The UI names which mode is active. |
+| No secret read | Ana and Bruno in prod, many read-only roles | Helm release history unavailable. Timeline degrades to ReplicaSet reconstruction and labels the gap. Secret reveal on Screen 3 disabled with the missing verb named. |
 | No exec | Ana and Bruno in prod | Exec control renders disabled, tooltip naming `pods/exec` |
 | Break-glass write | Marina during an incident | Write controls unlock, every action logged to the session timeline |
 
 Three rules follow:
 
-1. Never issue a cluster-scoped list as a precondition for the app to load.
-   Discover through the user's own SelfSubjectAccessReview and fall back to
-   configured namespaces.
+1. A refused cluster-scoped list never blocks loading. No Kubernetes API
+   enumerates the namespaces a user has access to, so discovery is a chain:
+   probe one namespace list, treat 403 as a normal answer, fall back to the
+   kubeconfig context's `namespace` field, then to the configured list, and
+   tell the user which mode is active.
 2. Never hide a control the user lacks permission for. Disable, and name the
    missing verb. This is the top complaint in Headlamp's launch thread and stands
    unaddressed six years later.

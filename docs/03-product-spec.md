@@ -50,7 +50,23 @@ the current revision, restart count in the last 24 hours, and a sparkline of
 recent restarts.
 
 Health is derived and explainable. Clicking the badge shows why, naming the
-condition and the probe.
+condition and the probe. The derivation is specified here so it never becomes
+whatever the first implementation happened to compute. Evaluation order, first
+match wins:
+
+| State | Trigger |
+| --- | --- |
+| Failed | Any pod in CrashLoopBackOff or ImagePullBackOff, or `Progressing=False` with reason `ProgressDeadlineExceeded` |
+| Degraded | Ready below desired outside a rollout, repeated restarts in the observation window, or a failing probe on an otherwise ready pod |
+| Progressing | A rollout in flight, new ReplicaSet scaling up within the progress deadline |
+| Healthy | Ready equals desired, current revision fully rolled out, no recent restarts |
+
+CronJobs carry their own semantics, since ready-over-desired means nothing for
+them: Failed when the last completed Job failed, Degraded when the schedule is
+suspended or the last run missed its starting deadline, Healthy when the last
+run succeeded. Their row shows last run outcome and next scheduled run instead
+of replica counts. Jobs spawned by a CronJob group under it through the owner
+chain rather than appearing as separate apps.
 
 ### Screen 2: App detail with timeline
 
@@ -63,6 +79,7 @@ A horizontal time axis is the spine of the screen. Plotted on it:
 - Probe failures
 - OOMKills and evictions
 - HPA scaling decisions
+- CronJob and Job run outcomes
 - Warning events
 
 Below the axis, the current state: pods with status and age, the Service and
@@ -92,8 +109,17 @@ most pressure.
 
 ### Screen 3: Resolved configuration
 
-One table for the whole container. Columns: key, effective value, source, and
-whether the value differs from the previous revision.
+One table per container. Pods are rarely one container in practice, so init
+containers and sidecars get their own tabs rather than being merged, with the
+main application container selected by default. Columns: key, effective value,
+source, and whether the value differs from the previous revision.
+
+The revision-diff column is honest about what survives without storage. Inline
+`env` values are recoverable per revision, because old ReplicaSets preserve the
+pod template. Values sourced from ConfigMaps and Secrets are not, since
+Kubernetes keeps no content history for them. Those cells render "not
+recoverable at this revision", never "unchanged". Same horizon-honesty rule as
+the timeline.
 
 Sources merged:
 
@@ -115,6 +141,11 @@ environment, which is Rafael's job.
 Whole workload by default, every replica merged and time-ordered, with a color
 key per pod. Per-pod is a filter, never the entry point.
 
+Containers are a second filter dimension. Known mesh and infrastructure
+sidecars (istio-proxy, linkerd-proxy, envoy) are hidden by default, so proxy
+access lines never drown application output on a mesh cluster, with one click
+to reveal them. Init containers sit behind an explicit toggle.
+
 Requirements:
 
 - Follow mode with backpressure, so a chatty workload does not freeze the tab
@@ -123,6 +154,13 @@ Requirements:
 - Previous-container logs for a crashed pod, in one click
 - Copy a permalink reproducing the exact filter, workload, and window
 - Download the current buffer
+
+Log availability has edges, and the screen marks them the way the timeline
+does. The kubelet serves only what container-runtime rotation retains, 10MB
+per container by default. Previous-container logs reach exactly one restart
+back, never two. A deleted pod's logs are gone entirely. Where the timeline
+selection extends past what remains, the view renders "logs no longer
+available" rather than silence, so a crash loop never reads as a quiet period.
 
 ## Cross-cutting
 

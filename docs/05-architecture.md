@@ -66,6 +66,11 @@ Watch tiers, per [04-multi-cluster.md](04-multi-cluster.md):
 Secrets use a metadata-only informer. Values are fetched on demand, per key, with
 an explicit permission check. Secret values never enter the watch cache.
 
+Three on-demand paths sit outside the tiers entirely, all memoized for the
+session: timeline reconstruction, secret value reveals, and pod metadata for
+the promotion view's digest comparison, which needs `imageID` from pod status
+in environments whose background tier watches no pods.
+
 ### Grouping engine
 
 Pure function from a resource set to applications, using the precedence chain in
@@ -136,6 +141,14 @@ it, which is the actual gap.
 | Pod `restartCount` | Restart totals per container | Pod lifetime |
 | `deployment.kubernetes.io/revision` annotations | Rollout ordering | Matches ReplicaSets |
 | Events in etcd | Recent warnings, probe failures, evictions | apiserver `--event-ttl`, default 1h |
+
+Each source degrades independently, and degradation is labeled. Helm release
+secrets need `get` on secrets in the namespace, which read-only prod roles
+often exclude, so the richest source fails for exactly the personas in exactly
+the environment where the timeline matters most. When a source is forbidden
+the timeline renders from the others and marks the gap, for example "Helm
+history unavailable: needs read access to secrets". Never an error state, never
+silent absence.
 
 Reconstruction runs on demand when an app detail view opens, not at startup, so
 launch stays cheap. Results are memoized for the session.
@@ -272,6 +285,13 @@ are a recurring complaint in every competing tracker.
 Environment color is a system token, not a decoration. Prod red propagates to
 borders, headers, and confirmation dialogs from a single source.
 
+Accessibility is a token-level constraint, not a review item. Every color pair
+in both themes meets WCAG AA contrast, enforced in CI against the token file.
+Full keyboard operability beyond the command palette, with focus states
+specified per component. Dark-theme contrast failures are a recurring
+complaint across all three competing trackers, and this plan cites those bugs
+as ammunition, so shipping one would undercut the entire design argument.
+
 ## Performance budget
 
 Numbers, because "feels fast" is not testable.
@@ -306,7 +326,11 @@ developer works in most appears first.
 ## Testing
 
 - Grouping engine against fixture manifests, table-driven. The highest-value
-  tests in the project.
+  tests in the project. Fixtures include a cluster with no recommended labels
+  and no Helm, where the owner-chain and name fallbacks carry everything,
+  since entire shops run without labels and the last-resort path is
+  first-class there. Also both collision cases: same name in two namespaces of
+  one cluster, and cross-environment namespace conventions.
 - envtest for informer and permission behavior against a real apiserver.
 - kind-based integration suite covering three simulated environments, exercising
   the promotion view and cross-environment diff.

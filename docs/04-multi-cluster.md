@@ -15,7 +15,7 @@ Three concepts, deliberately separate.
 | --- | --- |
 | Context | A kubeconfig context. The connection primitive. |
 | Environment | A named tier: `qa`, `stg`, `prod`. Carries a color, a risk level, and a write policy. |
-| App | A logical service, present in zero or more environments, matched by name across them. |
+| App | A logical service, present in zero or more environments. Identity is namespace plus name within a cluster, matched across environments by the rules below. |
 
 One environment maps to one or more contexts. A team running prod across two
 regions gets one `prod` environment holding `prod-us-east` and `prod-eu-west`,
@@ -58,19 +58,43 @@ environments:
     contexts: [prod-us-east, prod-eu-west]
 
 apps:
-  # Optional. Only needed when an app is named differently per environment.
+  # Optional. Needed when name or namespace differs per environment, or when
+  # the same name exists in two namespaces of one cluster.
   checkout:
     match:
-      stg: checkout-svc
-      prod: checkout
+      qa: team-a-qa/checkout
+      stg: team-a/checkout-svc
+      prod: prod/checkout
 
 defaults:
-  namespaces: []          # empty means discover via SelfSubjectAccessReview
+  namespaces: []          # empty means probe: try a namespace list, else the
+                          # context's own namespace, else require this list
   metrics: auto           # auto | metrics-server | prometheus | none
 ```
 
+Cross-environment matching without config uses name plus namespace, tolerating
+environment-suffix conventions (`team-a-qa` matches `team-a-prod`). Two
+unrelated services sharing a name in different namespaces of one cluster stay
+two rows, never merged. When matching is ambiguous the promotion view says so
+on the row instead of guessing.
+
 A team commits a shared version to their repo and points `KUBESIDE_CONFIG` at it,
 so environment classification and colors stay consistent across the team.
+
+One catch a shared file must survive: context names are personal. One
+teammate's `prod-us-east` is another's `arn:aws:eks:us-east-1:...`. A shared
+config therefore identifies clusters by API server URL or cluster name:
+
+```yaml
+  - name: prod
+    risk: high
+    write: deny
+    clusters:
+      - https://A1B2C3.gr7.us-east-1.eks.amazonaws.com
+```
+
+`contexts:` stays available for personal configs. When both appear, cluster
+matching wins, since it survives every rename and every naming convention.
 
 ## Connection lifecycle
 
@@ -129,6 +153,13 @@ Version matching uses image tag and digest. Two environments running the same ta
 but different digests is a defect worth surfacing loudly, since a mutable tag
 means qa and prod are not running the same code.
 
+Digests need a note on mechanism, because they live in pod status (`imageID`),
+not in workload specs, and background environments deliberately watch no pods.
+While the promotion view is open, kubeside fetches pod metadata on demand for
+the compared apps, memoized for the session like timeline reconstruction.
+Digest cells render a pending state until the fetch lands, and tag comparison
+never waits for it.
+
 ## Screen: cross-environment config diff
 
 Screen 3 from the product spec, with an environment selector on each side.
@@ -179,6 +210,12 @@ Layers, all active at once:
 7. No bulk actions across environments. Ever. A single control never mutates more
    than one environment.
 
+One boundary stated plainly: these layers protect against accidents, not
+intent. The write policy lives in a config file the user controls and is
+trivially editable. RBAC is the security boundary. kubeside's guardrails are
+ergonomics on top of it, never a substitute for it, and the docs will say so
+wherever the policies are described.
+
 ## RBAC across environments
 
 The normal developer has different permissions in each environment, and the UI
@@ -189,9 +226,12 @@ must reflect that per environment rather than globally.
 - A control disabled in prod stays enabled in qa, in the same session, on the
   same screen. The promotion view shows an exec button live in qa and disabled in
   prod, with a tooltip naming `pods/exec`.
-- Namespace discovery is per context. A developer with three namespaces in qa and
-  one in prod sees exactly that.
-- No cluster-scoped list is ever a precondition for loading.
+- Namespace discovery is per context, and a 403 on the namespace list is a
+  normal answer, not an error. The chain: probe one list, fall back to the
+  context's `namespace` field, then to the configured list, with the active
+  mode named in the UI. A developer with three namespaces in qa and one in
+  prod sees exactly that.
+- A refused cluster-scoped list never blocks loading.
 
 ## History per environment
 
@@ -217,7 +257,7 @@ cluster behind a VPN never blocks the rest of the grid.
 
 | Situation | Behavior |
 | --- | --- |
-| Prod reachable only over VPN, currently off | Panel shows cached data with an age label and a reconnect action. Other environments unaffected. |
+| Prod reachable only over VPN, currently off | Two states, never conflated. Connected earlier this session: in-memory snapshot with its age. Never connected this session: "nothing known yet" with a reconnect action. Other environments unaffected either way. |
 | Credential plugin prompts for SSO in a browser | Inline prompt on the panel. No modal blocking the whole app. |
 | Two contexts point at the same cluster | Detected by API server URL and cluster UID, merged with a notice. |
 | Context renamed in kubeconfig | Match on cluster UID first, name second, so history survives a rename. |
@@ -243,4 +283,10 @@ cluster behind a VPN never blocks the rest of the grid.
 2. Should drift detection fire a notification, or stay passive? Leaning passive.
    A notification pulls the product toward alerting, which is a different tool
    with a much harder reliability promise.
+3. In `--serve` mode the session is the server lifetime, so the in-memory
+   buffer quietly accumulates months of observations a team will learn to
+   depend on, then lose on the next pod restart, during exactly the incident
+   where they reached for it. Leaning toward labeling the horizon marker with
+   the server start time plus an explicit ephemerality warning, and possibly
+   capping the displayed window so nobody builds a habit on it.
 </content>
