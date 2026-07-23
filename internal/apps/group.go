@@ -39,6 +39,7 @@ func Group(objects []Object) []App {
 	for _, o := range objects {
 		root, origin := resolveRoot(o, byUID)
 		key, comp, nameOrigin := identify(root, origin)
+		managedBy := unmodelledController(root)
 
 		app, ok := byKey[key]
 		if !ok {
@@ -54,6 +55,9 @@ func Group(objects []Object) []App {
 		}
 		if app.Component == "" {
 			app.Component = comp
+		}
+		if app.ManagedBy == "" {
+			app.ManagedBy = managedBy
 		}
 		app.Workloads = append(app.Workloads, o)
 
@@ -165,4 +169,21 @@ func identify(root Object, chainOrigin Origin) (Key, string, Origin) {
 		return Key{ns, v}, component, OriginArgo
 	}
 	return Key{ns, root.Name}, component, chainOrigin
+}
+
+// unmodelledController reports the controller kind when the owner walk ended
+// at something kubeside does not model.
+//
+// Reaching a Deployment or a ReplicaSet is ordinary. Reaching an operator's
+// custom resource means the workload is infrastructure the developer did not
+// deploy, which is worth marking so the UI can de-emphasise the row without
+// hiding it.
+func unmodelledController(root Object) string {
+	if root.Kind == "" || topLevelKinds[root.Kind] || intermediateKinds[root.Kind] {
+		return ""
+	}
+	if root.Kind == "Pod" {
+		return ""
+	}
+	return root.Kind
 }

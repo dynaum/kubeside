@@ -134,6 +134,14 @@ type App struct {
 	// carries the stable name that cross-environment matching needs later.
 	Component string
 
+	// ManagedBy names the controller kind that owns this app when the owner
+	// walk terminated at a kind kubeside does not model, typically a custom
+	// resource. It is infrastructure the developer did not deploy and cannot
+	// act on, so the UI de-emphasises it. The row is never hidden: hiding
+	// conflicts with disable-never-hide, and a CRD-backed workload that is
+	// genuinely someone's app must stay visible.
+	ManagedBy string
+
 	Workloads []Object
 }
 
@@ -157,6 +165,14 @@ func rankOf(kind string) int {
 		return r
 	}
 	return 99
+}
+
+// intermediateKinds sit between a pod and its top-level controller. They are
+// modelled, so resolving through them is normal rather than a sign of a CRD.
+var intermediateKinds = map[string]bool{
+	"ReplicaSet":         true,
+	"Job":                true,
+	"ControllerRevision": true,
 }
 
 // topLevelKinds are workloads a developer thinks of as "a thing I deployed".

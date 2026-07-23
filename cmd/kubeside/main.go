@@ -240,8 +240,15 @@ func printContext(out io.Writer, mgr *clusters.Manager, kctx kubeconfig.Context,
 	})
 	for _, a := range rows {
 		h := apps.Assess(a)
+		kind := a.Kind
+		if a.ManagedBy != "" {
+			// Infrastructure the developer did not deploy. Marked, never
+			// hidden: hiding conflicts with disable-never-hide, and a
+			// CRD-backed workload might genuinely be someone's app.
+			kind = a.Kind + " via " + a.ManagedBy
+		}
 		fmt.Fprintf(tw, "   %s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
-			glyph(h.Health), a.Key.Namespace, a.Key.Name, a.Kind,
+			glyph(h.Health), a.Key.Namespace, a.Key.Name, kind,
 			readyRatio(a), len(a.Workloads), a.Origin, detailFor(h))
 	}
 	tw.Flush()

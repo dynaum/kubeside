@@ -444,3 +444,60 @@ func TestOriginStringsAreStable(t *testing.T) {
 		t.Errorf("out-of-range origin = %q, want unknown", s)
 	}
 }
+
+// Found on a real cluster: a pod owned by an operator's custom resource
+// became its own app. The grouping is correct, but the row is infrastructure
+// the developer did not deploy, so it is marked rather than hidden.
+func TestPodOwnedByCustomResourceIsMarkedManaged(t *testing.T) {
+	p := obj("Pod", "arc-runners", "scale-set-abc123-listener").
+		ownedByMissing("AutoscalingListener", "scale-set-abc123-listener")
+
+	got := Group([]Object{p})
+
+	if len(got) != 1 {
+		t.Fatalf("apps = %v, want 1", names(got))
+	}
+	a := got[0]
+	if a.ManagedBy != "AutoscalingListener" {
+		t.Fatalf("ManagedBy = %q, want the controller kind so the UI can de-emphasise it", a.ManagedBy)
+	}
+	// Hiding would conflict with disable-never-hide, and a CRD-backed workload
+	// might genuinely be someone's app.
+	if a.Key.Name == "" {
+		t.Fatal("the row must still exist")
+	}
+}
+
+func TestOrdinaryWorkloadsAreNotMarkedManaged(t *testing.T) {
+	dep := obj("Deployment", "prod", "checkout")
+	rs := obj("ReplicaSet", "prod", "checkout-7d9f").ownedBy(dep)
+	pod := obj("Pod", "prod", "checkout-7d9f-x1").ownedBy(rs)
+
+	for _, a := range Group([]Object{dep, rs, pod}) {
+		if a.ManagedBy != "" {
+			t.Fatalf("%s marked as managed by %q; resolving through a ReplicaSet is ordinary",
+				a.Key.Name, a.ManagedBy)
+		}
+	}
+}
+
+func TestAbsentReplicaSetOwnerIsNotMarkedManaged(t *testing.T) {
+	// Under namespace-scoped RBAC the Deployment is frequently unreadable.
+	// That is a permissions gap, not a custom controller.
+	rs := obj("ReplicaSet", "prod", "checkout-7d9f").ownedByMissing("Deployment", "checkout")
+	for _, a := range Group([]Object{rs}) {
+		if a.ManagedBy != "" {
+			t.Fatalf("ManagedBy = %q; an unreadable Deployment is not a CRD", a.ManagedBy)
+		}
+	}
+}
+
+func TestCronJobOwnedJobsAreNotMarkedManaged(t *testing.T) {
+	cj := obj("CronJob", "team-c", "billing")
+	job := obj("Job", "team-c", "billing-1").ownedBy(cj)
+	for _, a := range Group([]Object{cj, job}) {
+		if a.ManagedBy != "" {
+			t.Fatalf("ManagedBy = %q; a CronJob owning Jobs is ordinary", a.ManagedBy)
+		}
+	}
+}
