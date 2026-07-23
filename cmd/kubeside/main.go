@@ -88,6 +88,7 @@ func run(args []string, out, errOut io.Writer) error {
 		kctx, _ := cfg.Get(name)
 		printContext(out, mgr, kctx, results[name])
 	}
+	printFooter(out)
 	return nil
 }
 
@@ -314,4 +315,13 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// printFooter says what this build is and is not.
+//
+// Without it, a one-shot listing that exits looks like a crash to anyone
+// expecting the product rather than the spike.
+func printFooter(out io.Writer) {
+	fmt.Fprintln(out, "This is the connect spike: it lists and exits. The browser UI is the next feature.")
+	fmt.Fprintln(out, "Grouping wrong anywhere? The GROUPED BY column names the rule that produced each app.")
 }
