@@ -21,6 +21,29 @@ One environment maps to one or more contexts. A team running prod across two
 regions gets one `prod` environment holding `prod-us-east` and `prod-eu-west`,
 and the promotion view aggregates them with per-context detail on expansion.
 
+### An environment is not always a context
+
+Validating the grouping engine against a real cluster on 2026-07-23 disproved
+the assumption that environment and context are the same axis. That cluster
+held four parallel environments distinguished by a namespace prefix, sharing
+one context, one server URL, and one set of credentials. 107 of its 141 rows
+were roughly 35 services repeated across those four environments.
+
+Two consequences the original model got wrong:
+
+1. The apps screen would show 141 rows where the developer thinks about 35
+   services, and the repetition would be the dominant visual structure.
+2. The promotion matrix keys on contexts, so it would silently not apply to a
+   cluster whose environments are namespaces, which is exactly a cluster that
+   needs it.
+
+The environment axis therefore resolves from a context **or** a namespace
+pattern. Inference is deliberately cautious: `team-a-*` and `team-b-*`
+namespaces are structurally identical to environment prefixes but mean
+something entirely different, and collapsing teams into environments would be
+worse than showing extra rows. Tracked in issue #39, which is blocked on that
+product decision rather than on code.
+
 ## Configuration
 
 Zero-config first run, refined by a local file. Never a required setup wizard.

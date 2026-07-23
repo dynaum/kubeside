@@ -156,6 +156,18 @@ Nodes, PersistentVolumes, CRDs, Helm, and RBAC dominate the navigation. Headlamp
 non-cluster-admins") acknowledges the mismatch. A developer with namespace-scoped
 RBAC sees a sidebar mostly full of forbidden links.
 
+## Validation
+
+The grouping engine was tested against a real, organically grown cluster on
+2026-07-23 rather than a fixture. 141 apps, of which 134 resolved on the first
+rule of the precedence chain. Nothing was split across rows and nothing
+unrelated was merged; the fallbacks were all vendor components that genuinely
+ship without recommended labels.
+
+That settles the riskiest question in the plan: developers do recognise the
+output as their own services. It also surfaced two findings the plan had not
+anticipated, recorded as issues #39 and #40.
+
 ## Competition
 
 [skyhook-io/radar](https://github.com/skyhook-io/radar) launched 2026-01-20 under
