@@ -38,11 +38,25 @@ Two consequences the original model got wrong:
    needs it.
 
 The environment axis therefore resolves from a context **or** a namespace
-pattern. Inference is deliberately cautious: `team-a-*` and `team-b-*`
-namespaces are structurally identical to environment prefixes but mean
-something entirely different, and collapsing teams into environments would be
-worse than showing extra rows. Tracked in issue #39, which is blocked on that
-product decision rather than on code.
+pattern, decided 2026-07-23 (issue #39). A configurable template names the
+segments, for example `{env}-{system}-{service}`. The final placeholder
+captures the rest, since service names contain the separator.
+
+A structural pattern alone over-matches: a platform namespace like
+`aws-load-balancer-controller` has the same three-segment shape as a tenant
+service and would be misread as one. So resolution anchors one segment, either
+a known set of systems or a known set of environments. On a real cluster the
+system segment was the stable anchor, and anchoring on it turned 141 flat rows
+into 35 services across 4 environments while leaving 34 platform namespaces
+untouched.
+
+Inference remains a suggestion, never automatic: `team-a-*` and `team-b-*` are
+structurally identical to environment prefixes but mean something entirely
+different, so a human confirms before a prefix becomes an axis. The signal is
+that real environments run largely the same set of services and teams do not.
+
+The mechanism lives in `internal/environments`. Wiring it into the apps screen
+and the promotion matrix is tracked in #19 and #12.
 
 ## Configuration
 
