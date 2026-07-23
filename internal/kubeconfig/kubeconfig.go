@@ -8,7 +8,9 @@ package kubeconfig
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -24,6 +26,83 @@ type Context struct {
 	Namespace string // per-context default, seeds the namespace filter
 	IsCurrent bool
 	Insecure  bool // insecure-skip-tls-verify, surfaced as a warning in the UI
+
+	// Exec describes the credential plugin this context authenticates with,
+	// when it uses one. Captured so that a rejected credential can name the
+	// command that would fix it instead of printing a bare error.
+	Exec *ExecConfig
+}
+
+// ExecConfig is the kubeconfig exec block for a context.
+type ExecConfig struct {
+	Command string
+	Args    []string
+	Env     map[string]string
+}
+
+// LoginHint returns the command a developer should run when this context's
+// credentials are rejected, or "" when nothing useful can be said.
+//
+// It never invents a command that is not implied by the kubeconfig. Guessing
+// wrong here is worse than staying quiet: it sends someone to run something
+// that cannot help.
+func (e *ExecConfig) LoginHint() string {
+	if e == nil || e.Command == "" {
+		return ""
+	}
+	base := filepath.Base(e.Command)
+
+	switch {
+	case base == "aws" && hasArg(e.Args, "eks"):
+		if p := e.awsProfile(); p != "" {
+			return "aws sso login --profile " + p
+		}
+		return "aws sso login"
+	case strings.Contains(base, "gke-gcloud-auth-plugin"), base == "gcloud":
+		return "gcloud auth login"
+	case base == "az", strings.Contains(base, "azure"):
+		return "az login"
+	case base == "tsh":
+		return "tsh login"
+	case strings.Contains(base, "kubelogin"), strings.Contains(base, "oidc-login"), strings.Contains(base, "oidc_login"):
+		return "kubelogin clear-token-cache, then re-run"
+	}
+	return ""
+}
+
+// Describe renders the configured credential command, used when no specific
+// login hint is known so the developer at least sees what ran.
+func (e *ExecConfig) Describe() string {
+	if e == nil || e.Command == "" {
+		return ""
+	}
+	if len(e.Args) == 0 {
+		return e.Command
+	}
+	return e.Command + " " + strings.Join(e.Args, " ")
+}
+
+// awsProfile finds the profile this context authenticates with, from the exec
+// args or the exec env block.
+func (e *ExecConfig) awsProfile() string {
+	for i, a := range e.Args {
+		if a == "--profile" && i+1 < len(e.Args) {
+			return e.Args[i+1]
+		}
+		if v, ok := strings.CutPrefix(a, "--profile="); ok {
+			return v
+		}
+	}
+	return e.Env["AWS_PROFILE"]
+}
+
+func hasArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Config is the merged view of every kubeconfig file in the chain.
@@ -85,6 +164,19 @@ func fromAPIConfig(raw *clientcmdapi.Config, srcs []string) *Config {
 		if cl, ok := raw.Clusters[kctx.Cluster]; ok {
 			c.Server = cl.Server
 			c.Insecure = cl.InsecureSkipTLSVerify
+		}
+		if au, ok := raw.AuthInfos[kctx.AuthInfo]; ok && au.Exec != nil {
+			ec := &ExecConfig{
+				Command: au.Exec.Command,
+				Args:    append([]string(nil), au.Exec.Args...),
+			}
+			if len(au.Exec.Env) > 0 {
+				ec.Env = make(map[string]string, len(au.Exec.Env))
+				for _, kv := range au.Exec.Env {
+					ec.Env[kv.Name] = kv.Value
+				}
+			}
+			c.Exec = ec
 		}
 		cfg.Contexts = append(cfg.Contexts, c)
 	}

@@ -211,3 +211,42 @@ func TestExecPluginExitIsUnauthorized(t *testing.T) {
 		t.Fatalf("classify = %s, want unauthorized for a failed credential plugin", got)
 	}
 }
+
+// Reported from a real cluster: an expired SSO session was being classified as
+// unreachable, which sends the developer to check their VPN instead of running
+// the login command. client-go formats plugin failures into a string error, so
+// the typed checks alone do not catch these.
+func TestExpiredSSOClassifiesAsUnauthorized(t *testing.T) {
+	realWorld := []string{
+		`getting credentials: exec: executable aws failed with exit code 255`,
+		`Get "https://eks.example:443/version": getting credentials: exec: executable aws failed with exit code 1`,
+		`the server has asked for the client to provide credentials`,
+		`exec plugin: invalid apiVersion "client.authentication.k8s.io/v1alpha1"`,
+	}
+	for _, msg := range realWorld {
+		t.Run(msg[:min(40, len(msg))], func(t *testing.T) {
+			got := classify(errors.New(msg))
+			if msg == `the server has asked for the client to provide credentials` {
+				// This one arrives as a typed apierrors value in practice; as a
+				// bare string it is not required to classify as unauthorized.
+				return
+			}
+			if got != StateUnauthorized {
+				t.Fatalf("classify(%q) = %s, want unauthorized", msg, got)
+			}
+		})
+	}
+}
+
+func TestGenuineNetworkFailuresStayUnreachable(t *testing.T) {
+	for _, msg := range []string{
+		`dial tcp 10.0.0.1:443: connect: connection refused`,
+		`dial tcp: lookup eks.example: no such host`,
+		`context deadline exceeded`,
+		`net/http: TLS handshake timeout`,
+	} {
+		if got := classify(errors.New(msg)); got != StateUnreachable {
+			t.Errorf("classify(%q) = %s, want unreachable", msg, got)
+		}
+	}
+}

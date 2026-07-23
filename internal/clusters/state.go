@@ -3,6 +3,7 @@ package clusters
 import (
 	"errors"
 	"os/exec"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -94,7 +95,34 @@ func classify(err error) State {
 	if errors.As(err, &authErr) {
 		return StateUnauthorized
 	}
+	// client-go formats credential plugin failures into a plain string error,
+	// so the typed checks above miss them. Matching the message is unpleasant
+	// but the alternative is telling someone whose SSO session expired that
+	// their cluster is unreachable, which sends them to check the VPN.
+	if isCredentialPluginFailure(err.Error()) {
+		return StateUnauthorized
+	}
 	return StateUnreachable
+}
+
+// credentialPluginMarkers are substrings client-go uses when an exec
+// credential plugin fails. Kept in one place so the heuristic is auditable.
+var credentialPluginMarkers = []string{
+	"getting credentials",
+	"exec plugin",
+	"credential plugin",
+	"no Auth Provider found",
+	"unable to load root certificates",
+}
+
+func isCredentialPluginFailure(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, m := range credentialPluginMarkers {
+		if strings.Contains(lower, strings.ToLower(m)) {
+			return true
+		}
+	}
+	return false
 }
 
 // AuthError lets a connector report a credential failure that is not an

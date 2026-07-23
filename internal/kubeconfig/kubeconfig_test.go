@@ -245,3 +245,82 @@ func TestRESTConfigForUnknownContextErrors(t *testing.T) {
 		t.Fatal("want an error for an unknown context")
 	}
 }
+
+const withExec = `
+apiVersion: v1
+kind: Config
+current-context: eks
+clusters:
+  - name: c
+    cluster: {server: https://eks.example:443}
+users:
+  - name: sso
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1beta1
+        command: aws
+        args: [--region, us-east-1, eks, get-token, --cluster-name, prod, --profile, prod-admin]
+contexts:
+  - name: eks
+    context: {cluster: c, user: sso}
+`
+
+func TestExecBlockIsCaptured(t *testing.T) {
+	cfg, err := Load(Options{Precedence: []string{write(t, "config", withExec)}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c, _ := cfg.Get("eks")
+	if c.Exec == nil {
+		t.Fatal("exec block missing; without it a rejected credential cannot name its own fix")
+	}
+	if c.Exec.Command != "aws" {
+		t.Errorf("command = %q, want aws", c.Exec.Command)
+	}
+}
+
+func TestLoginHintNamesTheProfileFromArgs(t *testing.T) {
+	cfg, err := Load(Options{Precedence: []string{write(t, "config", withExec)}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c, _ := cfg.Get("eks")
+	if got, want := c.Exec.LoginHint(), "aws sso login --profile prod-admin"; got != want {
+		t.Fatalf("hint = %q, want %q", got, want)
+	}
+}
+
+func TestLoginHintPerTool(t *testing.T) {
+	tests := []struct {
+		name string
+		exec *ExecConfig
+		want string
+	}{
+		{"aws without profile", &ExecConfig{Command: "aws", Args: []string{"eks", "get-token"}}, "aws sso login"},
+		{"aws profile from env", &ExecConfig{Command: "aws", Args: []string{"eks", "get-token"}, Env: map[string]string{"AWS_PROFILE": "qa"}}, "aws sso login --profile qa"},
+		{"aws profile equals form", &ExecConfig{Command: "aws", Args: []string{"eks", "get-token", "--profile=stg"}}, "aws sso login --profile stg"},
+		{"gke plugin", &ExecConfig{Command: "/usr/local/bin/gke-gcloud-auth-plugin"}, "gcloud auth login"},
+		{"azure", &ExecConfig{Command: "az"}, "az login"},
+		{"teleport", &ExecConfig{Command: "tsh"}, "tsh login"},
+		{"nil exec", nil, ""},
+		{"unknown tool stays silent", &ExecConfig{Command: "acme-auth", Args: []string{"token"}}, ""},
+		{"aws without eks is not an sso guess", &ExecConfig{Command: "aws", Args: []string{"sts", "get-caller-identity"}}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.exec.LoginHint(); got != tc.want {
+				t.Fatalf("hint = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDescribeFallsBackToTheConfiguredCommand(t *testing.T) {
+	e := &ExecConfig{Command: "acme-auth", Args: []string{"token", "--env", "qa"}}
+	if got, want := e.Describe(), "acme-auth token --env qa"; got != want {
+		t.Fatalf("describe = %q, want %q", got, want)
+	}
+	if (*ExecConfig)(nil).Describe() != "" {
+		t.Error("nil exec should describe as empty")
+	}
+}

@@ -7,10 +7,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +39,8 @@ func run(args []string, out, errOut io.Writer) error {
 	showVersion := fs.Bool("version", false, "print version and exit")
 	serve := fs.Bool("serve", false, "run in-cluster as a team web UI")
 	kubeconfigPath := fs.String("kubeconfig", "", "explicit kubeconfig path")
+	contextList := fs.String("context", "", "only use these kubeconfig contexts (comma-separated)")
+	profile := fs.String("profile", "", "AWS_PROFILE for exec credential plugins")
 	timeout := fs.Duration("timeout", 15*time.Second, "per-cluster connect and fetch timeout")
 
 	if err := fs.Parse(args); err != nil {
@@ -49,6 +54,14 @@ func run(args []string, out, errOut io.Writer) error {
 		return fmt.Errorf("--serve is not implemented yet; see docs/06-roadmap.md")
 	}
 
+	// --profile only sets the environment inherited by credential plugins.
+	// kubeconfig is never edited.
+	if *profile != "" {
+		if err := os.Setenv("AWS_PROFILE", *profile); err != nil {
+			return fmt.Errorf("set AWS_PROFILE: %w", err)
+		}
+	}
+
 	opts := kubeconfig.Options{ExplicitPath: *kubeconfigPath}
 	cfg, err := kubeconfig.Load(opts)
 	if err != nil {
@@ -60,15 +73,20 @@ func run(args []string, out, errOut io.Writer) error {
 		return nil
 	}
 
+	if cfg, err = filterContexts(cfg, *contextList); err != nil {
+		return err
+	}
+
 	mgr := clusters.New(cfg, clusters.KubeConnector{Opts: opts}, clusters.Options{})
 	defer mgr.Close()
 
 	fmt.Fprintf(out, "kubeside %s\n", version.String())
-	fmt.Fprintf(out, "%d contexts from %s\n\n", len(cfg.Contexts), strings.Join(cfg.Sources, ", "))
+	fmt.Fprintf(out, "%d %s from %s\n\n", len(cfg.Contexts), plural(len(cfg.Contexts), "context", "contexts"), strings.Join(cfg.Sources, ", "))
 
 	results := gather(context.Background(), mgr, cfg, *timeout)
 	for _, name := range mgr.ConnectOrder() {
-		printContext(out, mgr, name, results[name])
+		kctx, _ := cfg.Get(name)
+		printContext(out, mgr, kctx, results[name])
 	}
 	return nil
 }
@@ -76,6 +94,54 @@ func run(args []string, out, errOut io.Writer) error {
 type result struct {
 	snap clusters.Snapshot
 	err  error
+}
+
+// filterContexts narrows the config to the named contexts.
+//
+// An unknown name is an error listing what is available, never a silent empty
+// result: a typo should not look like a cluster with no apps.
+func filterContexts(cfg *kubeconfig.Config, list string) (*kubeconfig.Config, error) {
+	if strings.TrimSpace(list) == "" {
+		return cfg, nil
+	}
+
+	want := map[string]bool{}
+	var order []string
+	for _, raw := range strings.Split(list, ",") {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := cfg.Get(name); !ok {
+			var have []string
+			for _, c := range cfg.Contexts {
+				have = append(have, c.Name)
+			}
+			return nil, fmt.Errorf("unknown context %q; available: %s", name, strings.Join(have, ", "))
+		}
+		if !want[name] {
+			want[name] = true
+			order = append(order, name)
+		}
+	}
+	if len(order) == 0 {
+		return cfg, nil
+	}
+
+	out := &kubeconfig.Config{Sources: cfg.Sources}
+	for _, c := range cfg.Contexts {
+		if want[c.Name] {
+			out.Contexts = append(out.Contexts, c)
+		}
+	}
+	// Keep a current context only if it survived the filter, so connect order
+	// still favours the developer's usual workspace when it is included.
+	if want[cfg.Current] {
+		out.Current = cfg.Current
+	} else {
+		out.Current = order[0]
+	}
+	return out, nil
 }
 
 // gather connects and fetches every context concurrently, so one cluster
@@ -112,14 +178,11 @@ func gather(ctx context.Context, mgr *clusters.Manager, cfg *kubeconfig.Config, 
 	return out
 }
 
-func printContext(out io.Writer, mgr *clusters.Manager, name string, r result) {
+func printContext(out io.Writer, mgr *clusters.Manager, kctx kubeconfig.Context, r result) {
+	name := kctx.Name
 	status, _ := mgr.Status(name)
 
-	header := name
-	if cur, ok := mgr.Status(name); ok && cur.State == clusters.StateLive {
-		header = name
-	}
-	fmt.Fprintf(out, "── %s  [%s]", header, status.State)
+	fmt.Fprintf(out, "── %s  [%s]", name, status.State)
 	if status.State == clusters.StateStale && status.Age > 0 {
 		fmt.Fprintf(out, "  snapshot %s old", status.Age.Round(time.Second))
 	}
@@ -132,6 +195,9 @@ func printContext(out io.Writer, mgr *clusters.Manager, name string, r result) {
 			fmt.Fprintf(out, "   nothing known: %v\n", r.err)
 		} else {
 			fmt.Fprintln(out, "   nothing known yet")
+		}
+		if status.State == clusters.StateUnauthorized {
+			printCredentialHelp(out, kctx, r.err)
 		}
 		fmt.Fprintln(out)
 		return
@@ -195,4 +261,57 @@ func printOriginTally(out io.Writer, list []apps.App) {
 		parts = append(parts, fmt.Sprintf("%s %d", k, tally[k]))
 	}
 	fmt.Fprintf(out, "   grouped by: %s\n", strings.Join(parts, ", "))
+}
+
+// printCredentialHelp turns a rejected credential into an actionable next step.
+//
+// Reporting "unauthorized" and stopping leaves the developer to remember which
+// of several login commands applies to this cluster. The kubeconfig already
+// records how the context authenticates, so name it.
+func printCredentialHelp(out io.Writer, kctx kubeconfig.Context, cause error) {
+	if kctx.Exec == nil {
+		fmt.Fprintln(out, "   this context does not use a credential plugin; check its token or client certificate")
+		return
+	}
+
+	// A missing binary and an expired session both surface as a credential
+	// failure, but the fixes are unrelated. Telling someone to run a login
+	// command for a tool they have not installed wastes their time.
+	if isMissingExecutable(cause) {
+		fmt.Fprintf(out, "   the credential plugin is not installed or not on PATH: %s\n", kctx.Exec.Command)
+		fmt.Fprintln(out, "   install it, or fix the command in your kubeconfig, then re-run kubeside")
+		return
+	}
+
+	if hint := kctx.Exec.LoginHint(); hint != "" {
+		fmt.Fprintln(out, "   your session for this context has likely expired")
+		fmt.Fprintf(out, "   run: %s\n", hint)
+		fmt.Fprintln(out, "   then re-run kubeside")
+		return
+	}
+	// No known mapping. Print what the kubeconfig runs rather than guessing a
+	// login command that may not exist.
+	fmt.Fprintf(out, "   this context authenticates with: %s\n", kctx.Exec.Describe())
+	fmt.Fprintln(out, "   re-authenticate with that tool, then re-run kubeside")
+}
+
+// isMissingExecutable reports whether a credential failure was caused by the
+// plugin binary being absent rather than by a rejected or expired credential.
+func isMissingExecutable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "executable file not found") ||
+		strings.Contains(msg, "no such file or directory")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
