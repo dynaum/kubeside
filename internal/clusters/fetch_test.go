@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	osexec "os/exec"
+	"strings"
 	"testing"
 
+	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -248,5 +250,102 @@ func TestGenuineNetworkFailuresStayUnreachable(t *testing.T) {
 		if got := classify(errors.New(msg)); got != StateUnreachable {
 			t.Errorf("classify(%q) = %s, want unreachable", msg, got)
 		}
+	}
+}
+
+func i32(v int32) *int32 { return &v }
+
+// Health must survive the adapter: a Deployment below desired should reach the
+// engine as degraded, not as an empty status.
+func TestStatusReachesHealthDerivation(t *testing.T) {
+	c := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "healthy", Namespace: "ns", UID: "h", Generation: 2},
+			Spec:       appsv1.DeploymentSpec{Replicas: i32(3)},
+			Status: appsv1.DeploymentStatus{
+				ReadyReplicas: 3, UpdatedReplicas: 3, AvailableReplicas: 3, ObservedGeneration: 2,
+			},
+		},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "degraded", Namespace: "ns", UID: "d", Generation: 1},
+			Spec:       appsv1.DeploymentSpec{Replicas: i32(6)},
+			Status: appsv1.DeploymentStatus{
+				ReadyReplicas: 5, UpdatedReplicas: 6, AvailableReplicas: 5, ObservedGeneration: 1,
+			},
+		},
+	)
+
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	got := map[string]apps.Health{}
+	for _, a := range snap.Apps {
+		got[a.Key.Name] = apps.Assess(a).Health
+	}
+	if got["healthy"] != apps.HealthHealthy {
+		t.Errorf("healthy = %s, want healthy", got["healthy"])
+	}
+	if got["degraded"] != apps.HealthDegraded {
+		t.Errorf("degraded = %s, want degraded", got["degraded"])
+	}
+}
+
+func TestCrashLoopingPodReachesHealthDerivation(t *testing.T) {
+	c := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "ns", UID: "d",
+				Labels: map[string]string{"app.kubernetes.io/instance": "app"}},
+			Spec:   appsv1.DeploymentSpec{Replicas: i32(1)},
+			Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "app-x", Namespace: "ns", UID: "p",
+				Labels: map[string]string{"app.kubernetes.io/instance": "app"}},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodPending,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					RestartCount: 12,
+					State:        corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				}},
+			},
+		},
+	)
+
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(snap.Apps) != 1 {
+		t.Fatalf("got %d apps, want 1", len(snap.Apps))
+	}
+	a := apps.Assess(snap.Apps[0])
+	if a.Health != apps.HealthFailed || a.Reason != "CrashLoopBackOff" {
+		t.Fatalf("got %s/%s, want failed/CrashLoopBackOff", a.Health, a.Reason)
+	}
+	if !strings.Contains(a.Detail, "app-x") {
+		t.Errorf("detail %q should name the pod", a.Detail)
+	}
+}
+
+// An unset replica count means one, not zero. Reading it as zero would report
+// every default-replica Deployment as healthy regardless of reality.
+func TestUnsetReplicasDefaultsToOne(t *testing.T) {
+	c := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "ns", UID: "d"},
+			Status:     appsv1.DeploymentStatus{ReadyReplicas: 0},
+		},
+	)
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got := apps.Assess(snap.Apps[0]).Health; got != apps.HealthFailed {
+		t.Fatalf("health = %s, want failed: 0 of 1 ready", got)
 	}
 }

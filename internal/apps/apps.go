@@ -1,6 +1,9 @@
 package apps
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // Object is the minimal shape the grouping engine needs from a Kubernetes
 // resource. Adapters build these from typed or unstructured objects, which
@@ -13,6 +16,59 @@ type Object struct {
 	Labels      map[string]string
 	Annotations map[string]string
 	Owners      []Owner
+
+	// Status carries the fields health derivation needs. Kept as plain data
+	// rather than client-go types so the engine stays pure and testable
+	// without an apiserver. Nil when the object was read metadata-only.
+	Status *Status
+}
+
+// Status is the subset of a resource's status that health derivation reads.
+type Status struct {
+	// Workload-level. Zero values mean "not applicable to this kind".
+	DesiredReplicas    int32
+	ReadyReplicas      int32
+	UpdatedReplicas    int32
+	AvailableReplicas  int32
+	Generation         int64
+	ObservedGeneration int64
+	Conditions         []Condition
+
+	// Pod-level.
+	Phase            string // Running, Pending, Succeeded, Failed
+	Ready            bool
+	RestartCount     int32
+	WaitingReason    string // CrashLoopBackOff, ImagePullBackOff, ErrImagePull
+	TerminatedReason string // OOMKilled, Error
+	ProbeFailure     string // readiness or liveness message, when known
+
+	// CronJob-level.
+	Suspended        bool
+	LastScheduleTime *time.Time
+	LastSuccessTime  *time.Time
+	ActiveJobs       int32
+	LastJobFailed    bool
+}
+
+// Condition mirrors a Kubernetes status condition.
+type Condition struct {
+	Type    string // Available, Progressing, ReplicaFailure
+	Status  string // True, False, Unknown
+	Reason  string
+	Message string
+}
+
+// Find returns the named condition.
+func (s *Status) Find(condType string) (Condition, bool) {
+	if s == nil {
+		return Condition{}, false
+	}
+	for _, c := range s.Conditions {
+		if c.Type == condType {
+			return c, true
+		}
+	}
+	return Condition{}, false
 }
 
 // Owner is a controller reference. Only controller owners are followed; a

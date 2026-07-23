@@ -224,21 +224,30 @@ func printContext(out io.Writer, mgr *clusters.Manager, kctx kubeconfig.Context,
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "   NAMESPACE\tAPP\tKIND\tOBJECTS\tGROUPED BY")
+	fmt.Fprintln(tw, "   \tNAMESPACE\tAPP\tKIND\tREADY\tOBJECTS\tGROUPED BY\tWHY")
 	rows := append([]apps.App(nil), r.snap.Apps...)
+	// Worst first: the two apps that need a human float above the forty that
+	// do not, which is the whole point of deriving health.
 	sort.Slice(rows, func(i, j int) bool {
+		ai, aj := apps.Assess(rows[i]).Health.Attention(), apps.Assess(rows[j]).Health.Attention()
+		if ai != aj {
+			return ai < aj
+		}
 		if rows[i].Key.Namespace != rows[j].Key.Namespace {
 			return rows[i].Key.Namespace < rows[j].Key.Namespace
 		}
 		return rows[i].Key.Name < rows[j].Key.Name
 	})
 	for _, a := range rows {
-		fmt.Fprintf(tw, "   %s\t%s\t%s\t%d\t%s\n",
-			a.Key.Namespace, a.Key.Name, a.Kind, len(a.Workloads), a.Origin)
+		h := apps.Assess(a)
+		fmt.Fprintf(tw, "   %s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			glyph(h.Health), a.Key.Namespace, a.Key.Name, a.Kind,
+			readyRatio(a), len(a.Workloads), a.Origin, detailFor(h))
 	}
 	tw.Flush()
 
 	fmt.Fprintf(out, "\n   %d apps\n", len(r.snap.Apps))
+	printHealthTally(out, r.snap.Apps)
 	printOriginTally(out, r.snap.Apps)
 	fmt.Fprintln(out)
 }
@@ -324,4 +333,66 @@ func plural(n int, one, many string) string {
 func printFooter(out io.Writer) {
 	fmt.Fprintln(out, "This is the connect spike: it lists and exits. The browser UI is the next feature.")
 	fmt.Fprintln(out, "Grouping wrong anywhere? The GROUPED BY column names the rule that produced each app.")
+}
+
+// glyph mirrors the design system's status channel: shape carries the meaning
+// so the column stays readable when a terminal has no colour.
+func glyph(h apps.Health) string {
+	switch h {
+	case apps.HealthHealthy:
+		return "●"
+	case apps.HealthProgressing:
+		return "◐"
+	case apps.HealthDegraded:
+		return "▲"
+	case apps.HealthFailed:
+		return "■"
+	}
+	return "○"
+}
+
+func readyRatio(a apps.App) string {
+	for _, w := range a.Workloads {
+		if w.Status == nil || !isTopLevel(w.Kind) {
+			continue
+		}
+		if a.Kind == "CronJob" {
+			return "—"
+		}
+		if w.Status.DesiredReplicas > 0 {
+			return fmt.Sprintf("%d/%d", w.Status.ReadyReplicas, w.Status.DesiredReplicas)
+		}
+	}
+	return "—"
+}
+
+func isTopLevel(kind string) bool {
+	switch kind {
+	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Rollout":
+		return true
+	}
+	return false
+}
+
+// detailFor stays quiet for healthy apps. A "why" column that explains every
+// row is noise; it earns its width only where something is wrong.
+func detailFor(h apps.Assessment) string {
+	if h.Health == apps.HealthHealthy {
+		return ""
+	}
+	return h.Detail
+}
+
+func printHealthTally(out io.Writer, list []apps.App) {
+	tally := map[string]int{}
+	for _, a := range list {
+		tally[apps.Assess(a).Health.String()]++
+	}
+	var parts []string
+	for _, k := range []string{"failed", "degraded", "progressing", "unknown", "healthy"} {
+		if n := tally[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", k, n))
+		}
+	}
+	fmt.Fprintf(out, "   health: %s\n", strings.Join(parts, ", "))
 }
