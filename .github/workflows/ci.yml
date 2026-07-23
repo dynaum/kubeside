@@ -32,6 +32,16 @@ jobs:
             git diff -- go.mod go.sum
             exit 1
           fi
+      - name: Format
+        run: |
+          unformatted="$(gofmt -l ./cmd ./internal)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d ./cmd ./internal
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
       - name: Build

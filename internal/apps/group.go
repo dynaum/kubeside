@@ -78,6 +78,7 @@ func Group(objects []Object) []App {
 //   - The owner is absent, which is the norm under namespace-scoped RBAC: the
 //     owner reference still carries its name, so use that rather than
 //     inventing one app per ReplicaSet revision.
+//
 // The returned Origin describes how the ROOT'S NAME became available, not how
 // far the walk travelled. Reaching a Deployment from a Pod and then using the
 // Deployment's own name is still OriginWorkloadName; only a root synthesised
