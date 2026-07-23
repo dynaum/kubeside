@@ -1,5 +1,12 @@
 # Roadmap
 
+> Superseded as the build order on 2026-07-22. Work now proceeds feature by
+> feature as vertical slices, driven by the `feature:*` labels and the table in
+> [CLAUDE.md](../CLAUDE.md). This document is kept for its reasoning about what
+> each capability is worth and what has to be true before it ships, which the
+> feature order still relies on. Where the two disagree about sequence,
+> CLAUDE.md wins.
+
 Milestones ordered so each one is independently useful. No milestone exists
 purely as scaffolding for the next.
 
