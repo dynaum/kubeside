@@ -216,3 +216,82 @@ func TestNoAnchorTrustsStructure(t *testing.T) {
 		t.Fatal("without an anchor, a three-segment namespace matches structurally")
 	}
 }
+
+func TestClassifyTiers(t *testing.T) {
+	tests := []struct {
+		name  string
+		risk  Risk
+		write WritePolicy
+	}{
+		{"prod-us-east", RiskHigh, WriteDeny},
+		{"production", RiskHigh, WriteDeny},
+		{"acme-prd", RiskHigh, WriteDeny},
+		{"staging-eks", RiskMedium, WriteConfirm},
+		{"uat", RiskMedium, WriteConfirm},
+		{"preprod", RiskMedium, WriteConfirm},
+		{"qa1", RiskLow, WriteAllow},
+		{"kind-local-dev", RiskLow, WriteAllow},
+		{"sandbox3", RiskLow, WriteAllow},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Classify(tc.name)
+			if e.Risk != tc.risk {
+				t.Errorf("risk = %s, want %s", e.Risk, tc.risk)
+			}
+			if e.Write != tc.write {
+				t.Errorf("write = %s, want %s", e.Write, tc.write)
+			}
+		})
+	}
+}
+
+// Production is checked before staging, so a name containing both reads as the
+// more dangerous tier.
+func TestClassifyPrefersTheMoreDangerousTier(t *testing.T) {
+	if e := Classify("prod-staging-mirror"); e.Risk != RiskHigh {
+		t.Fatalf("risk = %s, want high: a name with both prod and staging must not read as staging", e.Risk)
+	}
+}
+
+// An unfamiliar environment must inherit prod-strength guardrails.
+func TestUnclassifiedIsTreatedAsHighRisk(t *testing.T) {
+	e := Classify("ducks1")
+	if e.Risk != RiskHigh {
+		t.Errorf("risk = %s, want high: an unknown environment is dangerous until proven otherwise", e.Risk)
+	}
+	if e.Write != WriteDeny {
+		t.Errorf("write = %s, want deny", e.Write)
+	}
+	if !e.Hazard {
+		t.Error("an unclassified environment should carry the hazard marking")
+	}
+}
+
+func TestRiskUnknownRendersAsHighNeverSafe(t *testing.T) {
+	if RiskUnknown.String() != "high" {
+		t.Fatalf("RiskUnknown renders as %q; it must never render as a safe tier", RiskUnknown.String())
+	}
+}
+
+func TestHazardOnlyOnHighRisk(t *testing.T) {
+	if Classify("qa1").Hazard {
+		t.Error("low-risk environments should not carry hazard marking")
+	}
+	if Classify("staging").Hazard {
+		t.Error("medium-risk environments should not carry hazard marking")
+	}
+	if !Classify("prod").Hazard {
+		t.Error("high-risk environments must carry hazard marking")
+	}
+}
+
+func TestWritePolicyStrings(t *testing.T) {
+	for w, want := range map[WritePolicy]string{
+		WriteDeny: "deny", WriteConfirm: "confirm", WriteAllow: "allow", WriteBreakGlass: "break-glass",
+	} {
+		if w.String() != want {
+			t.Errorf("WritePolicy(%d) = %q, want %q", w, w.String(), want)
+		}
+	}
+}
