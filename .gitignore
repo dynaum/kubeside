@@ -6,9 +6,14 @@
 
 # Node
 node_modules/
-web/dist/
+web/dist/assets/
+web/dist/*.js
+web/dist/*.css
+web/dist/vite.svg
+web/node_modules/
 
 # Local
 .DS_Store
 .env
 .env.local
+web/tsconfig.tsbuildinfo

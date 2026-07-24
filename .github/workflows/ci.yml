@@ -65,3 +65,17 @@ jobs:
               go build -o /dev/null ./cmd/kubeside
             echo "ok $target"
           done
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm --prefix web ci
+      - name: Typecheck and build
+        run: npm --prefix web run build

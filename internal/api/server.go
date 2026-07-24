@@ -103,9 +103,13 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// Credentials must never be cached by an intermediary or the browser.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		// The UI is entirely local and loads nothing remote.
+		// The UI loads only its own bundle plus the IBM Plex font files. Fonts
+		// are the one documented external request; self-hosting them is a
+		// follow-up. Everything else is self.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'")
+			"default-src 'self'; img-src 'self' data:; "+
+				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+				"font-src 'self' https://fonts.gstatic.com; connect-src 'self'")
 		// No CORS headers are ever sent: no other origin may read this.
 
 		if !originAllowed(r) {
@@ -116,12 +120,23 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 			http.Error(w, "unexpected Host", http.StatusForbidden)
 			return
 		}
-		if r.URL.Path != "/healthz" && !s.tokenValid(r) {
+		// Only the API carries cluster data, so only the API requires the
+		// token. The static bundle is the same code published in the repo;
+		// gating it would break asset loading, since the browser requests
+		// /assets/*.js without the token in the URL. Origin and Host checks
+		// still apply to every path.
+		if requiresToken(r.URL.Path) && !s.tokenValid(r) {
 			http.Error(w, "invalid or missing session token", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requiresToken reports whether a path serves cluster data and must therefore
+// carry the session token. Only the API does.
+func requiresToken(path string) bool {
+	return strings.HasPrefix(path, "/api/")
 }
 
 // tokenValid accepts the token from the query string or an Authorization

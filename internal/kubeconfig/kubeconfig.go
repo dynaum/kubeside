@@ -198,6 +198,16 @@ func (c *Config) Get(name string) (Context, bool) {
 	return Context{}, false
 }
 
+// MustGet returns the named context, or a zero Context named after it when the
+// name is unknown. Callers that already validated the name use this to avoid a
+// second existence check.
+func (c *Config) MustGet(name string) Context {
+	if ctx, ok := c.Get(name); ok {
+		return ctx
+	}
+	return Context{Name: name}
+}
+
 // CurrentContext returns the context kubectl would use. It connects first, so
 // the developer's usual workspace renders while other clusters handshake.
 func (c *Config) CurrentContext() (Context, bool) {

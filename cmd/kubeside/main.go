@@ -38,6 +38,9 @@ func run(args []string, out, errOut io.Writer) error {
 	fs.SetOutput(errOut)
 	showVersion := fs.Bool("version", false, "print version and exit")
 	serve := fs.Bool("serve", false, "run in-cluster as a team web UI")
+	print := fs.Bool("print", false, "print the app list to the terminal and exit, instead of opening the UI")
+	noOpen := fs.Bool("no-open", false, "start the web UI but do not open a browser")
+	port := fs.Int("port", 7654, "port for the local web UI")
 	kubeconfigPath := fs.String("kubeconfig", "", "explicit kubeconfig path")
 	contextList := fs.String("context", "", "only use these kubeconfig contexts (comma-separated)")
 	profile := fs.String("profile", "", "AWS_PROFILE for exec credential plugins")
@@ -80,16 +83,19 @@ func run(args []string, out, errOut io.Writer) error {
 	mgr := clusters.New(cfg, clusters.KubeConnector{Opts: opts}, clusters.Options{})
 	defer mgr.Close()
 
-	fmt.Fprintf(out, "kubeside %s\n", version.String())
-	fmt.Fprintf(out, "%d %s from %s\n\n", len(cfg.Contexts), plural(len(cfg.Contexts), "context", "contexts"), strings.Join(cfg.Sources, ", "))
-
-	results := gather(context.Background(), mgr, cfg, *timeout)
-	for _, name := range mgr.ConnectOrder() {
-		kctx, _ := cfg.Get(name)
-		printContext(out, mgr, kctx, results[name])
+	if *print {
+		fmt.Fprintf(out, "kubeside %s\n", version.String())
+		fmt.Fprintf(out, "%d %s from %s\n\n", len(cfg.Contexts), plural(len(cfg.Contexts), "context", "contexts"), strings.Join(cfg.Sources, ", "))
+		results := gather(context.Background(), mgr, cfg, *timeout)
+		for _, name := range mgr.ConnectOrder() {
+			kctx, _ := cfg.Get(name)
+			printContext(out, mgr, kctx, results[name])
+		}
+		printFooter(out)
+		return nil
 	}
-	printFooter(out)
-	return nil
+
+	return serveUI(out, cfg, mgr, opts, *timeout, *port, !*noOpen)
 }
 
 type result struct {

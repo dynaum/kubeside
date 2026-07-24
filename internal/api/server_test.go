@@ -268,3 +268,38 @@ func TestURLCarriesTheToken(t *testing.T) {
 		t.Errorf("URL %q should be loopback", got)
 	}
 }
+
+// The static bundle is public code and must load without the token, or the
+// browser's tokenless request for /assets/*.js 401s and nothing renders.
+func TestStaticServedWithoutToken(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("static / without token = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "kubeside") {
+		t.Errorf("body = %q", w.Body.String())
+	}
+}
+
+// But the API, which carries cluster data, still requires the token.
+func TestAPIStillRequiresTokenAfterStaticExemption(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/contexts", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("api without token = %d, want 401", got)
+	}
+	if got := do(t, s, "GET", "/api/apps?context=qa", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("apps without token = %d, want 401", got)
+	}
+}
+
+func TestCSPAllowsPlexFontsOnly(t *testing.T) {
+	s := newTestServer(t)
+	csp := do(t, s, "GET", "/", nil).Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "fonts.googleapis.com") || !strings.Contains(csp, "fonts.gstatic.com") {
+		t.Errorf("CSP should permit the Plex font host: %q", csp)
+	}
+	if strings.Contains(csp, "unsafe-eval") {
+		t.Errorf("CSP must not allow eval: %q", csp)
+	}
+}
