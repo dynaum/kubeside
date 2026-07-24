@@ -3,6 +3,7 @@ module github.com/dynaum/kubeside
 go 1.26.2
 
 require (
+	github.com/coder/websocket v1.8.15
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2

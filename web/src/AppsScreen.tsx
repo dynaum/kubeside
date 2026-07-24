@@ -1,26 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, type AppsView, type AppView } from "./api";
+import { useMemo, useState } from "react";
+import { type AppsView, type AppView } from "./api";
 import { Glyph } from "./Status";
 import { envKey } from "./health";
+import { useApps, type Liveness } from "./stream";
 
 const ATTENTION: Record<string, number> = {
   failed: 0, degraded: 1, progressing: 2, unknown: 3, healthy: 4,
 };
 
 export function AppsScreen({ context }: { context: string }) {
-  const [view, setView] = useState<AppsView | null>(null);
-  const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-
-  useEffect(() => {
-    setView(null);
-    setErr(null);
-    let live = true;
-    api.apps(context)
-      .then((v) => { if (live) setView(v); })
-      .catch((e) => { if (live) setErr(String(e)); });
-    return () => { live = false; };
-  }, [context]);
+  // The screen is a subscription, not a fetch: one snapshot, then patches for
+  // as long as it is on screen.
+  const { view, error: err, liveness } = useApps(context);
 
   const env = envKey(context);
 
@@ -48,6 +40,7 @@ export function AppsScreen({ context }: { context: string }) {
         </div>
         {view && <ScopeNote view={view} />}
         <span className="spacer" />
+        <LiveDot liveness={liveness} />
         <input
           className="field"
           placeholder="filter"
@@ -130,6 +123,20 @@ function Body({ view, rows }: { view: AppsView; rows: AppView[]; totalShown: num
         </tbody>
       </table>
     </>
+  );
+}
+
+// Whether the screen is actually live is a fact the developer needs, not a
+// detail to hide. A retrying socket says so; it never leaves an old list
+// looking current.
+function LiveDot({ liveness }: { liveness: Liveness }) {
+  const cls = liveness === "live" ? "st-ok" : liveness === "connecting" ? "st-prog" : "st-unknown";
+  const label = liveness === "live" ? "live" : liveness === "connecting" ? "connecting" : "reconnecting";
+  return (
+    <span className={`st ${cls}`} title={liveness === "live" ? "receiving live updates" : "not receiving updates"}>
+      <i className="glyph" />
+      <span className="label">{label}</span>
+    </span>
   );
 }
 

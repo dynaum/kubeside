@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // tokenParam is the query parameter carrying the session token.
@@ -35,26 +36,44 @@ type Server struct {
 	handler http.Handler
 	ui      http.Handler
 	api     API
+	hub     *hub
 }
 
 // API is what the server exposes. Keeping it an interface lets the transport
 // be tested without a cluster manager behind it.
+//
+// The return types are concrete rather than any, because the delta path has to
+// diff two views to compute a patch and cannot do that through an interface
+// value.
 type API interface {
-	Contexts() any
-	Apps(context string) (any, error)
+	Contexts() []ContextView
+	Apps(context string) (AppsView, error)
+}
+
+// Option configures a Server.
+type Option func(*Server)
+
+// WithPollInterval sets how often a watched view is re-read. Tests use a short
+// interval; nothing else needs to set it.
+func WithPollInterval(d time.Duration) Option {
+	return func(s *Server) { s.hub.interval = d }
 }
 
 // New builds a server with a freshly generated session token.
-func New(a API, ui http.Handler) (*Server, error) {
+func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	tok, err := newToken()
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{token: tok, ui: ui, api: a}
+	s := &Server{token: tok, ui: ui, api: a, hub: newHub(a, DefaultPollInterval)}
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/contexts", s.handleContexts)
 	mux.HandleFunc("/api/apps", s.handleApps)
+	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -106,10 +125,16 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// The UI loads only its own bundle plus the IBM Plex font files. Fonts
 		// are the one documented external request; self-hosting them is a
 		// follow-up. Everything else is self.
+		//
+		// connect-src names the loopback websocket explicitly. 'self' covers
+		// it in current browsers, but not in every version that shipped, and a
+		// CSP that quietly blocks the socket would leave a screen that renders
+		// once and then never moves.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; img-src 'self' data:; "+
 				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
-				"font-src 'self' https://fonts.gstatic.com; connect-src 'self'")
+				"font-src 'self' https://fonts.gstatic.com; "+
+				"connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:*")
 		// No CORS headers are ever sent: no other origin may read this.
 
 		if !originAllowed(r) {

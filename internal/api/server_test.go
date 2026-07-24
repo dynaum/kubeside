@@ -10,16 +10,16 @@ import (
 )
 
 type stubAPI struct {
-	contexts any
-	apps     map[string]any
+	contexts []ContextView
+	apps     map[string]AppsView
 }
 
-func (s stubAPI) Contexts() any { return s.contexts }
+func (s stubAPI) Contexts() []ContextView { return s.contexts }
 
-func (s stubAPI) Apps(name string) (any, error) {
+func (s stubAPI) Apps(name string) (AppsView, error) {
 	v, ok := s.apps[name]
 	if !ok {
-		return nil, errors.New("unknown context " + name)
+		return AppsView{}, errors.New("unknown context " + name)
 	}
 	return v, nil
 }
@@ -27,8 +27,12 @@ func (s stubAPI) Apps(name string) (any, error) {
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	s, err := New(stubAPI{
-		contexts: []string{"qa", "prod"},
-		apps:     map[string]any{"qa": map[string]any{"apps": 3}},
+		contexts: []ContextView{{Name: "qa", Current: true}, {Name: "prod"}},
+		apps: map[string]AppsView{"qa": view(
+			app("team-a", "checkout", "healthy"),
+			app("team-b", "search", "failed"),
+			app("team-b", "billing", "healthy"),
+		)},
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("<!doctype html><title>kubeside</title>"))
 	}))
@@ -63,7 +67,7 @@ func TestValidTokenIsAccepted(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 	}
-	var got []string
+	var got []ContextView
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -219,12 +223,12 @@ func TestAppsReturnsTheSnapshot(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
-	var got map[string]any
+	var got AppsView
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got["apps"] != float64(3) {
-		t.Errorf("apps = %v, want 3", got["apps"])
+	if len(got.Apps) != 3 {
+		t.Errorf("apps = %d, want 3", len(got.Apps))
 	}
 }
 

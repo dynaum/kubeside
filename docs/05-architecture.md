@@ -202,6 +202,22 @@ REST for reads and mutations. One websocket per browser tab, carrying deltas.
 Delta protocol: the frontend subscribes to a view, the backend pushes typed
 patches. The browser never polls and never talks to an apiserver.
 
+A subscription answers with one snapshot and then patches carrying only what
+moved: rows added, rows changed, rows removed by key, plus view-level metadata
+whenever the connection state, the readable scope, or the unreadable kinds
+change. Absent means unchanged, never empty. Each message carries a sequence
+number, so a client that sees a gap resubscribes rather than rendering a view it
+cannot trust.
+
+What fills a patch is currently a periodic read per watched view, not an
+informer. The wire protocol is deltas from the first commit, so the tiered
+watches below replace the source without moving a line of client code. Nothing
+is read at all unless a tab is subscribed: attention is what makes a connection
+active, which is also what keeps a kubeconfig with thirty contexts from waking
+thirty apiservers because a window opened. A tab that stops draining its queue
+is disconnected and resyncs on reconnect, rather than being allowed to stall the
+feed every other tab shares.
+
 Log streams multiplex on the same websocket, tagged per pod, with a server-side
 ring buffer of 10k lines per workload and backpressure toward the client so a
 chatty deployment cannot freeze a tab.

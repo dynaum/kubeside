@@ -34,7 +34,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 
 // Contexts returns every context with its live connection state, in connect
 // order so the current context leads.
-func (s *Service) Contexts() any {
+func (s *Service) Contexts() []ContextView {
 	statuses := s.mgr.Statuses()
 	out := make([]ContextView, 0, len(statuses))
 	for _, st := range statuses {
@@ -60,9 +60,9 @@ func (s *Service) Contexts() any {
 //
 // An unreached context returns its state and no app list, never an empty one:
 // absence of knowledge and absence of apps are different facts.
-func (s *Service) Apps(name string) (any, error) {
+func (s *Service) Apps(name string) (AppsView, error) {
 	if _, ok := s.cfg.Get(name); !ok {
-		return nil, errUnknownContext(name)
+		return AppsView{}, errUnknownContext(name)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
