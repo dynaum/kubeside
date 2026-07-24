@@ -17,3 +17,4 @@ web/node_modules/
 .env
 .env.local
 web/tsconfig.tsbuildinfo
+HANDOFF.md
