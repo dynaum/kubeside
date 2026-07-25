@@ -5,27 +5,20 @@ wired, but publishing a first release under someone's name, and posting to three
 communities as that person, are their decisions to make and their words to send.
 Drafts below; nothing has been posted.
 
-## 1. Turn on the site
+## 1. The site
 
-The `pages` workflow builds `web/site-dist` and deploys it, but GitHub Pages is
-not enabled on the repository yet, so the deploy step has nothing to publish to.
+Pages is enabled with GitHub Actions as its source, and `PAGES_ENABLED` is set,
+so every push to `main` that touches the docs rebuilds and republishes
+`https://dynaum.github.io/kubeside/`.
 
-Two switches, both yours:
+To publish without waiting for a push:
 
 ```
-# 1. Settings -> Pages -> Source: GitHub Actions
-# 2. let the workflow publish
-gh variable set PAGES_ENABLED --body true
-
 gh workflow run pages.yml
 gh run watch
 ```
 
-Until `PAGES_ENABLED` is true the site is still built and tested on every push
-and only the publish step is skipped, so main does not carry a permanent red
-mark for a setting nobody has flipped yet.
-
-It lands on `https://dynaum.github.io/kubeside/`. Preview it locally first with:
+Preview it locally with:
 
 ```
 npm --prefix web run site && python3 -m http.server -d web/site-dist 7788

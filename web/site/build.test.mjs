@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildSite, rewriteLink, slugOf, DOCS, REPO } from "./build.mjs";
+import { buildSite, rewriteLink, slugOf, SECTIONS, REPO } from "./build.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 
 // The docs site has one failure mode that matters: a page that quietly stops
-// existing, or a link that points at nothing. Both read to a visitor as "this
-// product has no answer for that", which is the paper version of rendering an
-// unknown window as an empty one.
+// existing, a link that points at nothing, or an image that does not load.
+// All three read to a visitor as "this product has no answer for that", which
+// is the paper version of rendering an unknown window as an empty one.
 
 let out;
 let pages;
@@ -23,26 +23,48 @@ beforeAll(() => {
   pages = readdirSync(join(out, "docs")).filter((f) => f.endsWith(".html"));
 });
 
+const sourcesOf = (section) =>
+  readdirSync(join(root, section.dir)).filter((f) => f.endsWith(".md"));
+
+const htmlFiles = () => ["index.html", ...pages.map((p) => `docs/${p}`)];
+
 describe("the docs site", () => {
-  it("emits a page for every document in docs/", () => {
-    const sources = readdirSync(join(root, "docs")).filter((f) => f.endsWith(".md"));
-    expect(sources.length).toBeGreaterThan(0);
-    for (const src of sources) {
-      expect(pages).toContain(`${slugOf(src)}.html`);
+  it("emits a page for every document in every section", () => {
+    let total = 0;
+    for (const section of SECTIONS) {
+      const sources = sourcesOf(section);
+      expect(sources.length).toBeGreaterThan(0);
+      total += sources.length;
+      for (const src of sources) {
+        expect(pages).toContain(`${slugOf(src)}.html`);
+      }
     }
-    expect(pages.length).toBe(sources.length);
+    // index.html is the section index, not a document.
+    expect(pages.length).toBe(total + 1);
   });
 
-  it("emits a landing page", () => {
+  it("emits a landing page and a documentation index", () => {
     expect(existsSync(join(out, "index.html"))).toBe(true);
+    expect(existsSync(join(out, "docs", "index.html"))).toBe(true);
+  });
+
+  // An index that lists most of the documentation is worse than none: a reader
+  // trusts it and stops looking.
+  it("lists every page on the documentation index, under its section", () => {
+    const html = readFileSync(join(out, "docs", "index.html"), "utf8");
+    for (const section of SECTIONS) {
+      expect(html).toContain(section.label);
+      for (const src of sourcesOf(section)) {
+        expect(html).toContain(`href="${slugOf(src)}.html"`);
+      }
+    }
   });
 
   // A dead internal link is the site telling a visitor a page exists when it
   // does not. Every one of them is checked, on every build.
   it("leaves no internal link pointing at nothing", () => {
     const dead = [];
-    const files = ["index.html", ...pages.map((p) => `docs/${p}`)];
-    for (const file of files) {
+    for (const file of htmlFiles()) {
       const html = readFileSync(join(out, file), "utf8");
       for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
         if (/^(https?:|mailto:|#)/.test(href)) continue;
@@ -51,6 +73,21 @@ describe("the docs site", () => {
       }
     }
     expect(dead).toEqual([]);
+  });
+
+  // The guide is written around screenshots. One that does not load leaves a
+  // paragraph describing something the reader cannot see.
+  it("ships every image and video any page points at", () => {
+    const missing = [];
+    for (const file of htmlFiles()) {
+      const html = readFileSync(join(out, file), "utf8");
+      for (const [, src] of html.matchAll(/(?:src|poster)="([^"]+)"/g)) {
+        if (/^(https?:|data:)/.test(src)) continue;
+        const target = resolve(dirname(join(out, file)), src);
+        if (!existsSync(target)) missing.push(`${file} -> ${src}`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   // The docs cross-reference each other by filename. Those links have to end up
@@ -66,6 +103,13 @@ describe("the docs site", () => {
     const href = rewriteLink("../CLAUDE.md");
     expect(href.startsWith(REPO)).toBe(true);
     expect(href.endsWith("CLAUDE.md")).toBe(true);
+  });
+
+  // The guide sits in docs/guide and its images in docs/images, so its links
+  // climb one level on GitHub. On the site every page is one directory deep and
+  // the images sit at the root, which happens to be the same climb.
+  it("keeps a guide image link working on the site", () => {
+    expect(rewriteLink("../images/apps.png")).toBe("../images/apps.png");
   });
 
   it("leaves an external link alone", () => {
@@ -87,22 +131,19 @@ describe("the docs site", () => {
     expect(/<h2 id="[^"]+">/.test(html)).toBe(true);
   });
 
-  // The landing page shows the product, and the only honest screenshots are the
-  // ones the visual gate already compares against.
-  it("ships the screenshots the visual gate owns", () => {
+  // The landing page shows the product, and the only honest recordings are the
+  // ones taken from the build the visual gate compares against.
+  it("shows the product on the landing page", () => {
     const index = readFileSync(join(out, "index.html"), "utf8");
-    const shots = [...index.matchAll(/src="(shots\/[^"]+)"/g)].map((m) => m[1]);
-    expect(shots.length).toBeGreaterThan(0);
-    for (const shot of shots) {
-      expect(existsSync(join(out, shot))).toBe(true);
-    }
+    expect(index).toContain("<video");
+    expect([...index.matchAll(/src="images\/[^"]+"/g)].length).toBeGreaterThan(0);
   });
 
-  it("names every document in the navigation of every page", () => {
+  it("names every section in the navigation of every page", () => {
     for (const page of pages) {
       const html = readFileSync(join(out, "docs", page), "utf8");
-      for (const doc of DOCS) {
-        expect(html).toContain(`${slugOf(doc.file)}.html`);
+      for (const section of SECTIONS) {
+        expect(html).toContain(section.label);
       }
     }
   });
