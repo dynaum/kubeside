@@ -10,12 +10,20 @@ Drafts below; nothing has been posted.
 The `pages` workflow builds `web/site-dist` and deploys it, but GitHub Pages is
 not enabled on the repository yet, so the deploy step has nothing to publish to.
 
-Settings → Pages → Source: **GitHub Actions**. Then run the workflow:
+Two switches, both yours:
 
 ```
+# 1. Settings -> Pages -> Source: GitHub Actions
+# 2. let the workflow publish
+gh variable set PAGES_ENABLED --body true
+
 gh workflow run pages.yml
 gh run watch
 ```
+
+Until `PAGES_ENABLED` is true the site is still built and tested on every push
+and only the publish step is skipped, so main does not carry a permanent red
+mark for a setting nobody has flipped yet.
 
 It lands on `https://dynaum.github.io/kubeside/`. Preview it locally first with:
 

@@ -48,8 +48,15 @@ jobs:
         with:
           path: web/site-dist
 
+  # Deploying needs GitHub Pages switched on for the repository, which is a
+  # human's decision because it puts a public site under their name. Until the
+  # repository variable PAGES_ENABLED is set to true, the site is still built
+  # and tested on every push; only the publish step is skipped. A workflow that
+  # failed on every commit until somebody flipped a setting would train
+  # everybody to ignore a red mark on main.
   deploy:
     needs: build
+    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
