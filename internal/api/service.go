@@ -19,6 +19,7 @@ import (
 	"github.com/dynaum/kubeside/internal/timeline"
 	appsv1 "k8s.io/api/apps/v1"
 	authv1 "k8s.io/api/authorization/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -625,4 +626,130 @@ func ownedBy(refs []metav1.OwnerReference, owner types.UID) bool {
 		}
 	}
 	return false
+}
+
+// Diff compares one app's configuration across two environments.
+//
+// Both sides are resolved the same way the configuration screen resolves one,
+// then classified. Secret values are hashed inside this process and never
+// returned: the answer says two credentials differ without either appearing on
+// a screen.
+func (s *Service) Diff(req DiffRequest) (DiffView, error) {
+	left, err := s.Config(req.Context, req.Namespace, req.Workload)
+	if err != nil {
+		return DiffView{}, fmt.Errorf("%s: %w", req.Context, err)
+	}
+
+	// A shared config may map the app to a different namespace or name per
+	// environment. That mapping is exactly what apps.match in config.yaml is
+	// for, so it is consulted before falling back to the same coordinates.
+	rightNs, rightName := req.OtherNamespace, req.OtherWorkload
+	if ref, ok := s.conf.AppRef(req.Workload, s.environmentName(req.Other)); ok {
+		if rightNs == "" {
+			rightNs = ref.Namespace
+		}
+		if rightName == "" {
+			rightName = ref.Name
+		}
+	}
+	if rightNs == "" {
+		rightNs = req.Namespace
+	}
+	if rightName == "" {
+		rightName = req.Workload
+	}
+
+	right, err := s.Config(req.Other, rightNs, rightName)
+	if err != nil {
+		return DiffView{}, fmt.Errorf("%s: %w", req.Other, err)
+	}
+
+	leftContainer, ok := pickContainer(left.Containers, req.Container)
+	if !ok {
+		return DiffView{}, fmt.Errorf("no container to compare in %s", req.Workload)
+	}
+	rightContainer, ok := pickContainer(right.Containers, leftContainer.Name)
+	if !ok {
+		return DiffView{}, fmt.Errorf("%s has no container %q", req.Other, leftContainer.Name)
+	}
+
+	s.fillDigests(req.Context, req.Namespace, &leftContainer)
+	s.fillDigests(req.Other, rightNs, &rightContainer)
+
+	leftEnv := s.envOf(req.Context)
+	rightEnv := s.envOf(req.Other)
+	rows := resolved.CrossDiff(leftContainer, rightContainer, leftEnv, rightEnv)
+
+	return DiffView{
+		Left:      DiffSide{Context: req.Context, Namespace: req.Namespace, Workload: req.Workload, Env: leftEnv, Pod: left.Pod},
+		Right:     DiffSide{Context: req.Other, Namespace: rightNs, Workload: rightName, Env: rightEnv, Pod: right.Pod},
+		Container: leftContainer.Name,
+		Rows:      rows,
+		Summary:   resolved.Summarize(rows),
+	}, nil
+}
+
+// fillDigests hashes the secret values this reader is allowed to read. A Secret
+// nobody may read yields no digest, and the row then makes no claim rather than
+// implying the two sides match.
+func (s *Service) fillDigests(contextName, namespace string, c *resolved.Container) {
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	cache := map[string]*corev1.Secret{}
+	for i := range c.Values {
+		v := &c.Values[i]
+		if !v.Masked || v.Source.Ref == "" || v.Source.Key == "" {
+			continue
+		}
+		if allowed, _ := s.mayGetSecret(ctx, client, namespace, v.Source.Ref); !allowed {
+			continue
+		}
+		obj, ok := cache[v.Source.Ref]
+		if !ok {
+			got, err := client.CoreV1().Secrets(namespace).Get(ctx, v.Source.Ref, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+			obj = got
+			cache[v.Source.Ref] = got
+		}
+		if raw, ok := obj.Data[v.Source.Key]; ok {
+			// The value is hashed here and discarded. It never enters a view.
+			v.Digest = resolved.Digest(raw)
+		}
+	}
+}
+
+func (s *Service) envOf(contextName string) resolved.Env {
+	kctx, _ := s.cfg.Get(contextName)
+	env := s.conf.Environment(kctx)
+	return resolved.Env{Name: env.Name, Risk: env.Risk.String()}
+}
+
+func (s *Service) environmentName(contextName string) string {
+	return s.envOf(contextName).Name
+}
+
+// pickContainer chooses the container to compare: the named one, or the first
+// application container, which is what a developer means by "the app".
+func pickContainer(containers []resolved.Container, name string) (resolved.Container, bool) {
+	for _, c := range containers {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	if name != "" {
+		return resolved.Container{}, false
+	}
+	for _, c := range containers {
+		if !c.Init {
+			return c, true
+		}
+	}
+	return resolved.Container{}, false
 }

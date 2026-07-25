@@ -25,7 +25,7 @@ export function AppDetailScreen({
   context: ContextView;
   namespace: string;
   workload: string;
-  onNavigate: (screen: "config" | "logs") => void;
+  onNavigate: (screen: "config" | "logs" | "diff") => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<AppDetailView | null>(null);
@@ -84,7 +84,7 @@ function Body({
   view, onNavigate,
 }: {
   view: AppDetailView;
-  onNavigate: (screen: "config" | "logs") => void;
+  onNavigate: (screen: "config" | "logs" | "diff") => void;
 }) {
   const entries = view.timeline.entries ?? [];
   const horizons = view.timeline.horizons ?? [];

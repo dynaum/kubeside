@@ -115,6 +115,37 @@ type RevealView struct {
 	Note   string `json:"note,omitempty"`
 }
 
+// DiffRequest names the two sides of a comparison. The right side defaults to
+// the same namespace and workload, since the common case is the same app in
+// another environment.
+type DiffRequest struct {
+	Context        string
+	Namespace      string
+	Workload       string
+	Other          string
+	OtherNamespace string
+	OtherWorkload  string
+	Container      string
+}
+
+// DiffSide is one environment in a comparison.
+type DiffSide struct {
+	Context   string       `json:"context"`
+	Namespace string       `json:"namespace"`
+	Workload  string       `json:"workload"`
+	Pod       string       `json:"pod,omitempty"`
+	Env       resolved.Env `json:"env"`
+}
+
+// DiffView is one app's configuration compared across two environments.
+type DiffView struct {
+	Left      DiffSide            `json:"left"`
+	Right     DiffSide            `json:"right"`
+	Container string              `json:"container"`
+	Rows      []resolved.CrossRow `json:"rows"`
+	Summary   resolved.Summary    `json:"summary"`
+}
+
 // TimelineView is one app's reconstructed history, plus the honesty metadata:
 // where each source ran out and which could not be read at all.
 type TimelineView struct {

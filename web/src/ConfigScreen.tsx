@@ -20,7 +20,7 @@ export function ConfigScreen({
   namespace: string;
   workload: string;
   onBack: () => void;
-  onNavigate: (screen: "app" | "logs") => void;
+  onNavigate: (screen: "app" | "logs" | "diff") => void;
 }) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -70,6 +70,7 @@ export function ConfigScreen({
         </div>
         <span className="spacer" />
         {view?.pod && <span className="page-sub mono" style={{ fontSize: 11 }}>read from {view.pod}</span>}
+        <button className="btn" onClick={() => onNavigate("diff")}>Compare environment</button>
       </div>
 
       <div className="page">

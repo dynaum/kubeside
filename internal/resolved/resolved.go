@@ -63,6 +63,10 @@ type Value struct {
 	// Diff is how this value compares with the previous revision, scoped to
 	// what the cluster actually preserved.
 	Diff Diff `json:"diff,omitzero"`
+	// Digest is a hash of a masked value, computed for comparison only. It
+	// exists so two environments' credentials can be compared without either
+	// one being read onto a screen.
+	Digest string `json:"digest,omitempty"`
 }
 
 // Mount is file-based configuration. A tool that shows only environment

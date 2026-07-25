@@ -158,6 +158,42 @@ export interface ConfigView {
   comparedTo?: string;
 }
 
+export interface CrossRow {
+  key: string;
+  left?: string;
+  right?: string;
+  leftUnset?: boolean;
+  rightUnset?: boolean;
+  masked?: boolean;
+  leftDigest?: string;
+  rightDigest?: string;
+  class: string; // match, expected, drift, suspicious, missing, or empty
+  reason?: string;
+}
+
+export interface DiffSide {
+  context: string;
+  namespace: string;
+  workload: string;
+  pod?: string;
+  env: { name: string; risk: string };
+}
+
+export interface DiffView {
+  left: DiffSide;
+  right: DiffSide;
+  container: string;
+  rows: CrossRow[];
+  summary: {
+    drift: number;
+    suspicious: number;
+    missing: number;
+    expected: number;
+    match: number;
+    unknown: number;
+  };
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -222,6 +258,11 @@ export const api = {
     ),
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
+  diff: (context: string, namespace: string, workload: string, other: string) =>
+    get<DiffView>(
+      `/api/diff?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}` +
+        `&workload=${encodeURIComponent(workload)}&other=${encodeURIComponent(other)}`,
+    ),
   config: (context: string, namespace: string, workload: string) =>
     get<ConfigView>(
       `/api/config?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,

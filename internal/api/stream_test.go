@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/dynaum/kubeside/internal/logs"
+	"github.com/dynaum/kubeside/internal/resolved"
 )
 
 // streamStub is a mutable API whose app list a test can change between polls,
@@ -48,6 +49,22 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) Diff(req DiffRequest) (DiffView, error) {
+	if req.Other == "unreachable" {
+		return DiffView{}, errors.New("unreachable is not connected")
+	}
+	return DiffView{
+		Left:      DiffSide{Context: req.Context, Namespace: req.Namespace, Workload: req.Workload},
+		Right:     DiffSide{Context: req.Other, Namespace: req.Namespace, Workload: req.Workload},
+		Container: "app",
+		Rows: []resolved.CrossRow{
+			{Key: "LOG_LEVEL", Left: "debug", Right: "debug", Class: resolved.ClassSuspicious},
+			{Key: "RETRY_LIMIT", Left: "3", RightUnset: true, Class: resolved.ClassMissing},
+		},
+		Summary: resolved.Summary{Suspicious: 1, Missing: 1},
+	}, nil
 }
 
 func (s *streamStub) RevealSecret(_, _, _, _, _ string) (RevealView, error) {

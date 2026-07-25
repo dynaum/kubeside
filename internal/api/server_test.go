@@ -28,6 +28,22 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
 
+func (s stubAPI) Diff(req DiffRequest) (DiffView, error) {
+	if req.Other == "unreachable" {
+		return DiffView{}, errors.New("unreachable is not connected")
+	}
+	return DiffView{
+		Left:      DiffSide{Context: req.Context, Namespace: req.Namespace, Workload: req.Workload},
+		Right:     DiffSide{Context: req.Other, Namespace: req.Namespace, Workload: req.Workload},
+		Container: "app",
+		Rows: []resolved.CrossRow{
+			{Key: "LOG_LEVEL", Left: "debug", Right: "debug", Class: resolved.ClassSuspicious},
+			{Key: "RETRY_LIMIT", Left: "3", RightUnset: true, Class: resolved.ClassMissing},
+		},
+		Summary: resolved.Summary{Suspicious: 1, Missing: 1},
+	}, nil
+}
+
 func (s stubAPI) RevealSecret(_, _, secret, key, _ string) (RevealView, error) {
 	if secret == "locked" {
 		return RevealView{}, &ForbiddenError{Reason: "needs get on secret locked in team-a"}
@@ -549,5 +565,45 @@ func TestRevealRequiresEveryCoordinate(t *testing.T) {
 	w := postJSON(t, s, "/api/secret?"+tokenParam+"="+s.Token(), `{"context":"qa","namespace":"team-a"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestDiffComparesTwoEnvironments(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/diff?context=qa&namespace=team-a&workload=checkout&other=prod&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got DiffView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Rows) != 2 || got.Summary.Missing != 1 {
+		t.Fatalf("view = %+v", got)
+	}
+}
+
+// Comparing a context with itself produces a table of matches and answers
+// nothing, so it is refused rather than rendered.
+func TestDiffRefusesToCompareAContextWithItself(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/diff?context=qa&namespace=team-a&workload=checkout&other=qa&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestDiffRequiresBothSides(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/diff?context=qa&namespace=team-a&workload=checkout&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 without the other side", w.Code)
+	}
+}
+
+func TestDiffNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/diff?context=qa&namespace=team-a&workload=checkout&other=prod", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
 	}
 }

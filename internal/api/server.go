@@ -64,6 +64,8 @@ type API interface {
 	Config(contextName, namespace, workload string) (ConfigView, error)
 	// RevealSecret fetches one key of one Secret, gated and recorded.
 	RevealSecret(contextName, namespace, secret, key, workload string) (RevealView, error)
+	// Diff compares one app's configuration across two environments.
+	Diff(req DiffRequest) (DiffView, error)
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -95,6 +97,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/app", s.handleAppDetail)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/secret", s.handleReveal)
+	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +292,33 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": forbidden.Reason})
 			return
 		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	req := DiffRequest{
+		Context:        q.Get("context"),
+		Namespace:      q.Get("namespace"),
+		Workload:       q.Get("workload"),
+		Other:          q.Get("other"),
+		OtherNamespace: q.Get("otherNamespace"),
+		OtherWorkload:  q.Get("otherWorkload"),
+		Container:      q.Get("container"),
+	}
+	if req.Context == "" || req.Namespace == "" || req.Workload == "" || req.Other == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context, namespace, workload and other are required"})
+		return
+	}
+	if req.Other == req.Context && req.OtherNamespace == "" && req.OtherWorkload == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "comparing a context with itself says nothing"})
+		return
+	}
+	out, err := s.api.Diff(req)
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}

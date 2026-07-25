@@ -5,6 +5,7 @@ import { AppsScreen } from "./AppsScreen";
 import { LogsScreen } from "./LogsScreen";
 import { AppDetailScreen } from "./AppDetailScreen";
 import { ConfigScreen } from "./ConfigScreen";
+import { DiffScreen } from "./DiffScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 
@@ -99,6 +100,19 @@ export function App() {
             workload={route.workload}
             onNavigate={(screen) =>
               go({ screen, context: current.name, namespace: route.namespace, workload: route.workload })
+            }
+            onBack={() => go({ screen: "apps", context: current.name })}
+          />
+        )}
+        {current && route.screen === "diff" && (
+          <DiffScreen
+            context={current}
+            contexts={contexts}
+            namespace={route.namespace}
+            workload={route.workload}
+            other={route.other ?? ""}
+            onPickOther={(name) =>
+              go({ screen: "diff", context: current.name, namespace: route.namespace, workload: route.workload, other: name })
             }
             onBack={() => go({ screen: "apps", context: current.name })}
           />
