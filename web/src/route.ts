@@ -6,6 +6,7 @@ export type Route =
   | { screen: "promotion" }
   | { screen: "app"; context: string; namespace: string; workload: string }
   | { screen: "config"; context: string; namespace: string; workload: string }
+  | { screen: "exec"; context: string; namespace: string; workload: string }
   | { screen: "diff"; context: string; namespace: string; workload: string; other?: string }
   | { screen: "logs"; context: string; namespace: string; workload: string };
 
@@ -15,9 +16,9 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "diff" && parts.length >= 4) {
     return { screen: "diff", context: parts[1], namespace: parts[2], workload: parts[3], other: parts[4] };
   }
-  if ((parts[0] === "logs" || parts[0] === "app" || parts[0] === "config") && parts.length >= 4) {
+  if ((parts[0] === "logs" || parts[0] === "app" || parts[0] === "config" || parts[0] === "exec") && parts.length >= 4) {
     return {
-      screen: parts[0] as "logs" | "app" | "config",
+      screen: parts[0] as "logs" | "app" | "config" | "exec",
       context: parts[1], namespace: parts[2], workload: parts[3],
     };
   }
@@ -33,7 +34,7 @@ export function routeHash(r: Route): string {
     const base = `#diff/${enc(r.context)}/${enc(r.namespace)}/${enc(r.workload)}`;
     return r.other ? `${base}/${enc(r.other)}` : base;
   }
-  if (r.screen === "logs" || r.screen === "app" || r.screen === "config") {
+  if (r.screen === "logs" || r.screen === "app" || r.screen === "config" || r.screen === "exec") {
     return `#${r.screen}/${enc(r.context)}/${enc(r.namespace)}/${enc(r.workload)}`;
   }
   if (r.screen === "promotion") return "#promotion";

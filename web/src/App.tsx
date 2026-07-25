@@ -6,6 +6,7 @@ import { LogsScreen } from "./LogsScreen";
 import { AppDetailScreen } from "./AppDetailScreen";
 import { ConfigScreen } from "./ConfigScreen";
 import { DiffScreen } from "./DiffScreen";
+import { ExecScreen } from "./ExecScreen";
 import { PromotionScreen } from "./PromotionScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
@@ -150,6 +151,14 @@ export function App() {
             onPickOther={(name) =>
               go({ screen: "diff", context: current.name, namespace: route.namespace, workload: route.workload, other: name })
             }
+            onBack={() => go({ screen: "apps", context: current.name })}
+          />
+        )}
+        {current && route.screen === "exec" && (
+          <ExecScreen
+            context={current}
+            namespace={route.namespace}
+            workload={route.workload}
             onBack={() => go({ screen: "apps", context: current.name })}
           />
         )}

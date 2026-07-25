@@ -27,7 +27,7 @@ export function AppDetailScreen({
   context: ContextView;
   namespace: string;
   workload: string;
-  onNavigate: (screen: "config" | "logs" | "diff") => void;
+  onNavigate: (screen: "config" | "logs" | "diff" | "exec") => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<AppDetailView | null>(null);
@@ -127,6 +127,18 @@ export function AppDetailScreen({
             Port-forward
           </button>
         </span>
+        {/* The first genuinely destructive control in the product: visible,
+            disabled where the cluster refuses, naming the verb it needs. */}
+        <span className="rbac">
+          <button
+            className="btn"
+            onClick={() => onNavigate("exec")}
+            disabled={execDenied(can) !== null}
+            title={execDenied(can) ?? "opens a shell in a ready replica"}
+          >
+            Exec
+          </button>
+        </span>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
 
@@ -187,7 +199,7 @@ function Body({
   view, onNavigate,
 }: {
   view: AppDetailView;
-  onNavigate: (screen: "config" | "logs" | "diff") => void;
+  onNavigate: (screen: "config" | "logs" | "diff" | "exec") => void;
 }) {
   const entries = view.timeline.entries ?? [];
   const horizons = view.timeline.horizons ?? [];
@@ -457,6 +469,16 @@ function forwardDenied(can: CapabilitiesView | null): string | null {
 
 // writeColour follows the risk the policy implies: denied is not a warning, it
 // is the answer.
+function execDenied(can: CapabilitiesView | null): string | null {
+  if (!can) return null;
+  for (const [key, perm] of Object.entries(can.can)) {
+    if (key.startsWith("create pods/exec") && !perm.allowed) {
+      return perm.reason ?? "not permitted in this environment";
+    }
+  }
+  return null;
+}
+
 function writeColour(policy: string): string {
   switch (policy) {
     case "allow": return "var(--ok)";

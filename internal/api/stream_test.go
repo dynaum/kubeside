@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/dynaum/kubeside/internal/exec"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
@@ -53,6 +54,20 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) StartExec(ctx context.Context, req ExecRequest, onOutput func([]byte)) (*exec.Session, <-chan error, error) {
+	if req.Context == "prod" {
+		return nil, nil, &ForbiddenError{Reason: "needs create pods/exec in " + req.Namespace}
+	}
+	if req.Pod == "" {
+		return nil, nil, errors.New("exec needs a pod")
+	}
+	session := exec.New(echoExecutor{})
+	done := session.Start(ctx, exec.Target{
+		Context: req.Context, Namespace: req.Namespace, Pod: req.Pod, Container: req.Container,
+	}, onOutput)
+	return session, done, nil
 }
 
 func (s *streamStub) Gate(req GateRequest) (GateView, error) {

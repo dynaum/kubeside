@@ -13,6 +13,7 @@ import (
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
+	"github.com/dynaum/kubeside/internal/exec"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
@@ -64,6 +65,10 @@ type Service struct {
 	// session. Every disabled control in the UI is disabled because a cluster
 	// said so.
 	perms *rbac.Resolver
+	// exec runs interactive shells. It is the one genuinely destructive thing
+	// this product does, which is why it goes through the guard and the
+	// permission resolver before a session opens.
+	exec *exec.Session
 	// forwards owns every live port-forward. They die with the process, like
 	// everything else kubeside holds.
 	forwards *forward.Manager
@@ -1221,4 +1226,80 @@ func pluralize(resource string) string {
 		return "daemonsets"
 	}
 	return resource
+}
+
+// ExecRequest names one container to open a shell in.
+type ExecRequest struct {
+	Context   string
+	Namespace string
+	Pod       string
+	Container string
+	Workload  string
+}
+
+// StartExec opens an interactive session, after both gates agree.
+//
+// The order matters and is not an accident. The cluster is asked first, because
+// RBAC is the boundary; the write policy is checked second, because it is
+// ergonomics on top. A session that opens leaves a record on the timeline: a
+// shell in production is an event.
+func (s *Service) StartExec(ctx context.Context, req ExecRequest, onOutput func([]byte)) (*exec.Session, <-chan error, error) {
+	kctx, ok := s.cfg.Get(req.Context)
+	if !ok {
+		return nil, nil, errUnknownContext(req.Context)
+	}
+	if req.Pod == "" || req.Namespace == "" {
+		return nil, nil, fmt.Errorf("exec needs a namespace and a pod")
+	}
+
+	connectCtx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(connectCtx, req.Context); err != nil {
+		return nil, nil, err
+	}
+
+	// The security boundary first.
+	perm := s.perms.Can(connectCtx, req.Context, rbac.Action{
+		Verb: "create", Resource: "pods", Subresource: "exec", Namespace: req.Namespace,
+	})
+	if !perm.Allowed {
+		return nil, nil, &ForbiddenError{Reason: perm.Reason}
+	}
+
+	// Then the guardrail, which is about acting in the wrong window rather
+	// than about authority.
+	env := s.conf.Environment(kctx)
+	gate := s.guard.Check(req.Context, env, guard.Action{
+		Verb: "exec", Resource: "pod", Name: req.Pod, Namespace: req.Namespace,
+		Kubectl: fmt.Sprintf("kubectl exec -it %s -c %s -n %s --context %s -- sh",
+			req.Pod, req.Container, req.Namespace, req.Context),
+		Blast: guard.Blast{Pods: 1, Summary: "one container of " + req.Pod},
+	})
+	if !gate.Permitted {
+		return nil, nil, &ForbiddenError{Reason: gate.Reason}
+	}
+
+	session := exec.New(exec.KubeExecutor{
+		RESTConfig: func(contextName string) (*rest.Config, error) {
+			return kubeconfig.RESTConfigFor(s.opts, contextName)
+		},
+	})
+	done := session.Start(ctx, exec.Target{
+		Context: req.Context, Namespace: req.Namespace, Pod: req.Pod, Container: req.Container,
+	}, onOutput)
+
+	workload := req.Workload
+	if workload == "" {
+		workload = req.Pod
+	}
+	s.live.Record(sessionKey(req.Context, req.Namespace, workload), timeline.Entry{
+		At:     time.Now(),
+		Kind:   timeline.KindExec,
+		Title:  "opened a shell in " + req.Pod,
+		Detail: "container " + req.Container + " in " + env.Name,
+		Source: "session",
+		Actor:  timeline.Actor{Kind: timeline.ActorKubectl, Name: "this kubeside session"},
+	})
+
+	return session, done, nil
 }

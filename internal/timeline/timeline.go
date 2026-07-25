@@ -36,6 +36,9 @@ const (
 	// KindHealth is a live transition kubeside watched happen, rather than
 	// something reconstructed from the cluster's own records.
 	KindHealth = "health"
+	// KindExec records somebody opening a shell in a container. A shell in
+	// production is an event, not a page view.
+	KindExec = "exec"
 	// KindBreakGlass records somebody arming an environment for writes.
 	// Arming production is an event, not a setting.
 	KindBreakGlass = "break-glass"

@@ -44,6 +44,7 @@ internal/logs         multi-pod stream merge, backpressure, ring buffer
 internal/forward      port-forward lifecycle, loopback-only listeners
 internal/rbac         per-context permission resolution, cached for the session
 internal/guard        write policy, typed confirmation, break-glass windows
+internal/exec         interactive sessions, proxied through this process
 internal/metrics      source interface: metrics-server, prometheus, none
 internal/session      in-memory ring buffers, eviction, horizon tracking
 internal/api          HTTP + websocket handlers

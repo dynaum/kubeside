@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"time"
 
+	"github.com/dynaum/kubeside/internal/exec"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
@@ -31,6 +33,20 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) StartExec(ctx context.Context, req ExecRequest, onOutput func([]byte)) (*exec.Session, <-chan error, error) {
+	if req.Context == "prod" {
+		return nil, nil, &ForbiddenError{Reason: "needs create pods/exec in " + req.Namespace}
+	}
+	if req.Pod == "" {
+		return nil, nil, errors.New("exec needs a pod")
+	}
+	session := exec.New(echoExecutor{})
+	done := session.Start(ctx, exec.Target{
+		Context: req.Context, Namespace: req.Namespace, Pod: req.Pod, Container: req.Container,
+	}, onOutput)
+	return session, done, nil
+}
 
 func (s stubAPI) Gate(req GateRequest) (GateView, error) {
 	if req.Context == "prod" {
@@ -170,6 +186,28 @@ func (s stubAPI) Apps(name string) (AppsView, error) {
 		return AppsView{}, errors.New("unknown context " + name)
 	}
 	return v, nil
+}
+
+// echoExecutor is a container that repeats what it is told, which is enough to
+// prove the plumbing between a browser and a shell.
+type echoExecutor struct{}
+
+func (echoExecutor) Run(ctx context.Context, _ exec.Target, streams exec.Streams) error {
+	buf := make([]byte, 256)
+	for {
+		n, err := streams.Stdin.Read(buf)
+		if n > 0 {
+			if _, werr := streams.Stdout.Write(buf[:n]); werr != nil {
+				return werr
+			}
+		}
+		if err != nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
 }
 
 func newTestServer(t *testing.T) *Server {

@@ -15,6 +15,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -28,6 +29,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/dynaum/kubeside/internal/exec"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 )
@@ -80,6 +84,8 @@ type API interface {
 	// Gate answers what ceremony an action needs, and whether the cluster
 	// would permit it at all.
 	Gate(req GateRequest) (GateView, error)
+	// StartExec opens an interactive shell, after both gates agree.
+	StartExec(ctx context.Context, req ExecRequest, onOutput func([]byte)) (*exec.Session, <-chan error, error)
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -116,6 +122,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/promotion", s.handlePromotion)
 	mux.HandleFunc("/api/can", s.handleCapabilities)
 	mux.HandleFunc("/api/gate", s.handleGate)
+	mux.HandleFunc("/api/exec", s.handleExec)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +329,107 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 // developer's machine, which is not something a link should be able to do.
 // handleGate is a POST because asking can arm an environment: an unlock is a
 // consequence, and a link should not be able to cause one.
+// handleExec upgrades one tab to a terminal.
+//
+// The upgrade passes the same Origin, Host, and token checks as every other
+// request, and then two more that nothing else needs: the cluster's own answer
+// on pods/exec, and the environment's write policy. Only then does a shell
+// start.
+func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	req := ExecRequest{
+		Context:   q.Get("context"),
+		Namespace: q.Get("namespace"),
+		Pod:       q.Get("pod"),
+		Container: q.Get("container"),
+		Workload:  q.Get("workload"),
+	}
+
+	c, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	c.SetReadLimit(execReadLimit)
+	defer c.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	out := make(chan []byte, 64)
+	session, done, err := s.api.StartExec(ctx, req, func(b []byte) {
+		select {
+		case out <- b:
+		case <-ctx.Done():
+		}
+	})
+	if err != nil {
+		// A refusal arrives as a message rather than a dropped connection, so
+		// the terminal can say why instead of going blank.
+		_ = wsjson.Write(ctx, c, execMessage{Type: "error", Message: err.Error()})
+		_ = c.Close(websocket.StatusPolicyViolation, "exec refused")
+		return
+	}
+	defer session.Close()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b := <-out:
+				wctx, wcancel := context.WithTimeout(ctx, writeTimeout)
+				err := c.Write(wctx, websocket.MessageBinary, b)
+				wcancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			case err := <-done:
+				// The shell exited. Saying so beats a terminal that simply
+				// stops responding.
+				msg := "session ended"
+				if err != nil {
+					msg = err.Error()
+				}
+				_ = wsjson.Write(ctx, c, execMessage{Type: "ended", Message: msg})
+				_ = c.Close(websocket.StatusNormalClosure, "session ended")
+				cancel()
+				return
+			}
+		}
+	}()
+
+	for {
+		kind, data, err := c.Read(ctx)
+		if err != nil {
+			return
+		}
+		switch kind {
+		case websocket.MessageBinary:
+			session.Write(data)
+		case websocket.MessageText:
+			// Control messages are text; keystrokes are binary. Nothing has to
+			// guess which a frame is.
+			var m execMessage
+			if json.Unmarshal(data, &m) == nil && m.Type == "resize" {
+				session.Resize(exec.Size{Cols: m.Cols, Rows: m.Rows})
+			}
+		}
+	}
+}
+
+// execMessage is the control channel: resize going in, errors and endings
+// coming back.
+type execMessage struct {
+	Type    string `json:"type"`
+	Message string `json:"message,omitempty"`
+	Cols    uint16 `json:"cols,omitempty"`
+	Rows    uint16 `json:"rows,omitempty"`
+}
+
+// execReadLimit caps one frame. Keystrokes are bytes; a paste is kilobytes.
+const execReadLimit = 1 << 20
+
 func (s *Server) handleGate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "gate must be a POST"})
