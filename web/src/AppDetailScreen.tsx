@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   api,
-  type AppDetailView, type ContextView, type ForwardView, type PodView,
+  type AppDetailView, type CapabilitiesView, type ContextView, type ForwardView, type PodView,
   type TimelineEntry, type TimelineHorizon,
 } from "./api";
 import { envToken, healthClass } from "./health";
@@ -34,6 +34,7 @@ export function AppDetailScreen({
   const [forwards, setForwards] = useState<ForwardView[]>([]);
   const [forwardErr, setForwardErr] = useState<string | null>(null);
   const [port, setPort] = useState("8080");
+  const [can, setCan] = useState<CapabilitiesView | null>(null);
 
   useEffect(() => {
     setView(null);
@@ -44,6 +45,14 @@ export function AppDetailScreen({
       .catch((e) => { if (alive) setErr(String(e)); });
     return () => { alive = false; };
   }, [context.name, namespace, workload]);
+
+  // Permissions are resolved per context, so the same button is enabled here
+  // and disabled in another environment within one session.
+  useEffect(() => {
+    let alive = true;
+    api.can(context.name, namespace).then((c) => { if (alive) setCan(c); }).catch(() => {});
+    return () => { alive = false; };
+  }, [context.name, namespace]);
 
   // Forwards are process-wide, so the list is read once per screen rather than
   // guessed from what this screen opened.
@@ -96,7 +105,18 @@ export function AppDetailScreen({
           onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
           title="container port to forward"
         />
-        <button className="btn" onClick={openForward} disabled={!port}>Port-forward</button>
+        {/* Disabled, never hidden: the tooltip carries the verb the cluster
+            wants before this button can work. */}
+        <span className="rbac">
+          <button
+            className="btn"
+            onClick={openForward}
+            disabled={!port || forwardDenied(can) !== null}
+            title={forwardDenied(can) ?? "opens a loopback tunnel to a ready replica"}
+          >
+            Port-forward
+          </button>
+        </span>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
 
@@ -398,6 +418,18 @@ function shortImage(image?: string): string {
   const last = image.split("/").pop() ?? image;
   const [name, tag] = last.split(":");
   return tag ? tag : name;
+}
+
+// forwardDenied returns the reason the control cannot work, or null when it
+// can. A missing answer is not a refusal: the check may simply not have landed.
+function forwardDenied(can: CapabilitiesView | null): string | null {
+  if (!can) return null;
+  for (const [key, perm] of Object.entries(can.can)) {
+    if (key.startsWith("create pods/portforward") && !perm.allowed) {
+      return perm.reason ?? "not permitted in this environment";
+    }
+  }
+  return null;
 }
 
 function secondsSince(iso: string): number {

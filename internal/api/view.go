@@ -7,6 +7,7 @@ import (
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/promotion"
+	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
@@ -155,6 +156,17 @@ type ForwardRequest struct {
 	Pod        string `json:"pod,omitempty"`
 	RemotePort int    `json:"remotePort"`
 	LocalPort  int    `json:"localPort,omitempty"`
+}
+
+// CapabilitiesView is what this reader may do in one namespace of one context.
+//
+// The UI asks once per screen and renders every control accordingly: visible,
+// disabled where refused, and naming the verb it needs. Nothing is ever hidden
+// for lack of permission.
+type CapabilitiesView struct {
+	Context   string                     `json:"context"`
+	Namespace string                     `json:"namespace"`
+	Can       map[string]rbac.Permission `json:"can"`
 }
 
 // PromotionView is the matrix: one row per app, one column per environment.

@@ -15,6 +15,7 @@ import (
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/promotion"
+	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
 )
 
@@ -51,6 +52,19 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) Capabilities(contextName, namespace string) CapabilitiesView {
+	allowed := contextName == "qa"
+	can := map[string]rbac.Permission{}
+	for _, a := range []rbac.Action{{Verb: "create", Resource: "pods", Subresource: "exec", Namespace: namespace}} {
+		if allowed {
+			can[a.Key()] = rbac.Permission{Allowed: true}
+			continue
+		}
+		can[a.Key()] = rbac.Permission{Reason: "needs " + a.Key()}
+	}
+	return CapabilitiesView{Context: contextName, Namespace: namespace, Can: can}
 }
 
 func (s *streamStub) Promotion() PromotionView {

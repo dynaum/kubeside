@@ -13,6 +13,7 @@ import (
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/promotion"
+	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
@@ -29,6 +30,19 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) Capabilities(contextName, namespace string) CapabilitiesView {
+	allowed := contextName == "qa"
+	can := map[string]rbac.Permission{}
+	for _, a := range []rbac.Action{{Verb: "create", Resource: "pods", Subresource: "exec", Namespace: namespace}} {
+		if allowed {
+			can[a.Key()] = rbac.Permission{Allowed: true}
+			continue
+		}
+		can[a.Key()] = rbac.Permission{Reason: "needs " + a.Key()}
+	}
+	return CapabilitiesView{Context: contextName, Namespace: namespace, Can: can}
+}
 
 func (s stubAPI) Promotion() PromotionView {
 	envs := []promotion.Env{{Name: "qa"}, {Name: "prod"}}
@@ -723,5 +737,40 @@ func TestPromotionNeedsTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/promotion", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+// The same control on the same screen is enabled in qa and disabled in prod,
+// in one session. That is the whole point of resolving per context.
+func TestCapabilitiesResolvePerContext(t *testing.T) {
+	s := newTestServer(t)
+
+	var qa CapabilitiesView
+	w := do(t, s, "GET", "/api/can?context=qa&namespace=team-a&"+tokenParam+"="+s.Token(), nil)
+	if err := json.NewDecoder(w.Body).Decode(&qa); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !qa.Can["create pods/exec in team-a"].Allowed {
+		t.Fatalf("qa = %+v, want exec allowed", qa.Can)
+	}
+
+	var prod CapabilitiesView
+	w = do(t, s, "GET", "/api/can?context=prod&namespace=team-a&"+tokenParam+"="+s.Token(), nil)
+	if err := json.NewDecoder(w.Body).Decode(&prod); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	p := prod.Can["create pods/exec in team-a"]
+	if p.Allowed {
+		t.Fatal("prod must not inherit qa's permission")
+	}
+	if !strings.Contains(p.Reason, "create pods/exec") {
+		t.Errorf("reason = %q, should name the verb the control needs", p.Reason)
+	}
+}
+
+func TestCapabilitiesRequireBothCoordinates(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/can?context=qa&"+tokenParam+"="+s.Token(), nil).Code; got != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", got)
 	}
 }

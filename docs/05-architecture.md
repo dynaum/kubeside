@@ -42,6 +42,7 @@ internal/config       the optional config.yaml: environments, namespace axis
 internal/resolved     resolved configuration merge with provenance
 internal/logs         multi-pod stream merge, backpressure, ring buffer
 internal/forward      port-forward lifecycle, loopback-only listeners
+internal/rbac         per-context permission resolution, cached for the session
 internal/metrics      source interface: metrics-server, prometheus, none
 internal/session      in-memory ring buffers, eviction, horizon tracking
 internal/api          HTTP + websocket handlers

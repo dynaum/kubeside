@@ -72,8 +72,12 @@ func TestRevealIsRefusedWithoutGetOnThatSecret(t *testing.T) {
 	if !errors.As(err, &forbidden) {
 		t.Fatalf("error = %T, want a refusal the transport can turn into a 403", err)
 	}
-	if !strings.Contains(forbidden.Reason, "get on secret payments-stripe") {
-		t.Errorf("reason = %q, should name the verb and the Secret", forbidden.Reason)
+	// The phrasing is the resolver's, shared by every disabled control in the
+	// product: the verb, the resource, the name, and where.
+	for _, want := range []string{"get", "secrets", "payments-stripe", "team-a"} {
+		if !strings.Contains(forbidden.Reason, want) {
+			t.Errorf("reason = %q, should mention %q", forbidden.Reason, want)
+		}
 	}
 }
 

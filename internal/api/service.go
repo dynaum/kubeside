@@ -17,11 +17,11 @@ import (
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
 	"github.com/dynaum/kubeside/internal/promotion"
+	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
 	appsv1 "k8s.io/api/apps/v1"
-	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +50,10 @@ type Service struct {
 	// nothing changed" and "we have no idea" are different answers, and the
 	// screen must be able to tell them apart.
 	startedAt time.Time
+	// perms answers what this reader may do, per context, cached for the
+	// session. Every disabled control in the UI is disabled because a cluster
+	// said so.
+	perms *rbac.Resolver
 	// forwards owns every live port-forward. They die with the process, like
 	// everything else kubeside holds.
 	forwards *forward.Manager
@@ -73,6 +77,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 		timelines: newMemo[TimelineView](memoTTL),
 		live:      session.New(session.Limits{}),
 		startedAt: time.Now(),
+		perms:     rbac.New(rbac.KubeReviewer{ClientFor: mgr.ClientFor}),
 		forwards: forward.New(forward.KubeTunnel{
 			RESTConfig: func(contextName string) (*rest.Config, error) {
 				return kubeconfig.RESTConfigFor(opts, contextName)
@@ -451,7 +456,7 @@ func (s *Service) Config(contextName, namespace, workload string) (ConfigView, e
 	}
 
 	cfg := resolved.ResolveWith(ctx, client, pod, func(secret string) (bool, string) {
-		return s.mayGetSecret(ctx, client, namespace, secret)
+		return s.mayGetSecret(ctx, contextName, namespace, secret)
 	})
 
 	// The previous revision's pod template is still on the cluster inside its
@@ -490,28 +495,27 @@ func representativePod(a apps.App) string {
 	return fallback
 }
 
-// mayGetSecret asks the cluster whether this reader may get one Secret.
+// mayGetSecret asks whether this reader may get one specific Secret.
 //
-// The question is asked of the apiserver rather than guessed from a role, and
-// it names the specific Secret: a reader with get on one Secret and not another
-// should see exactly one reveal enabled.
-func (s *Service) mayGetSecret(ctx context.Context, client kubernetes.Interface, namespace, secret string) (bool, string) {
-	review := &authv1.SelfSubjectAccessReview{
-		Spec: authv1.SelfSubjectAccessReviewSpec{
-			ResourceAttributes: &authv1.ResourceAttributes{
-				Namespace: namespace, Verb: "get", Resource: "secrets", Name: secret,
-			},
-		},
+// It goes through the shared resolver, so the answer is cached for the session
+// and the same question asked by the configuration screen, the diff, and the
+// reveal costs one round trip rather than three.
+func (s *Service) mayGetSecret(ctx context.Context, contextName, namespace, secret string) (bool, string) {
+	p := s.perms.Can(ctx, contextName, rbac.Action{
+		Verb: "get", Resource: "secrets", Name: secret, Namespace: namespace,
+	})
+	return p.Allowed, p.Reason
+}
+
+// Can answers one permission question for the UI, which is how a control knows
+// whether to render itself disabled and what verb to name.
+func (s *Service) Can(contextName string, action rbac.Action) rbac.Permission {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return rbac.Permission{Reason: fmt.Sprintf("could not check permission to %s: %v", action.Key(), err)}
 	}
-	got, err := client.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
-	if err != nil {
-		// An unanswerable question is not a yes.
-		return false, fmt.Sprintf("could not check permission to get secret %s: %v", secret, err)
-	}
-	if !got.Status.Allowed {
-		return false, fmt.Sprintf("needs get on secret %s in %s", secret, namespace)
-	}
-	return true, ""
+	return s.perms.Can(ctx, contextName, action)
 }
 
 // RevealSecret fetches one key of one Secret, on demand.
@@ -536,7 +540,7 @@ func (s *Service) RevealSecret(contextName, namespace, secret, key, workload str
 		return RevealView{}, fmt.Errorf("context %q is not connected", contextName)
 	}
 
-	if allowed, reason := s.mayGetSecret(ctx, client, namespace, secret); !allowed {
+	if allowed, reason := s.mayGetSecret(ctx, contextName, namespace, secret); !allowed {
 		return RevealView{}, &ForbiddenError{Reason: reason}
 	}
 
@@ -718,7 +722,7 @@ func (s *Service) fillDigests(contextName, namespace string, c *resolved.Contain
 		if !v.Masked || v.Source.Ref == "" || v.Source.Key == "" {
 			continue
 		}
-		if allowed, _ := s.mayGetSecret(ctx, client, namespace, v.Source.Ref); !allowed {
+		if allowed, _ := s.mayGetSecret(ctx, contextName, namespace, v.Source.Ref); !allowed {
 			continue
 		}
 		obj, ok := cache[v.Source.Ref]
@@ -935,4 +939,42 @@ func orElseString(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// The actions the UI renders controls for. Named here so one list drives both
+// the permission check and the buttons, and a control cannot quietly appear
+// without a permission behind it.
+var uiActions = []rbac.Action{
+	{Verb: "create", Resource: "pods", Subresource: "exec"},
+	{Verb: "create", Resource: "pods", Subresource: "portforward"},
+	{Verb: "delete", Resource: "pods"},
+	{Verb: "patch", Resource: "deployments", Group: "apps"},
+	{Verb: "get", Resource: "pods", Subresource: "log"},
+}
+
+// Capabilities resolves every control's permission for one namespace at once.
+func (s *Service) Capabilities(contextName, namespace string) CapabilitiesView {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	out := CapabilitiesView{Context: contextName, Namespace: namespace, Can: map[string]rbac.Permission{}}
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		// An unreachable cluster grants nothing, and the reason says the check
+		// failed rather than that access was refused.
+		for _, a := range uiActions {
+			a.Namespace = namespace
+			out.Can[a.Key()] = rbac.Permission{
+				Reason: fmt.Sprintf("could not check permission to %s: %v", a.Key(), err),
+			}
+		}
+		return out
+	}
+
+	actions := make([]rbac.Action, 0, len(uiActions))
+	for _, a := range uiActions {
+		a.Namespace = namespace
+		actions = append(actions, a)
+	}
+	out.Can = s.perms.CanAll(ctx, contextName, actions)
+	return out
 }

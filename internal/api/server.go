@@ -74,6 +74,9 @@ type API interface {
 	StopForward(id string) error
 	// Promotion compares every app across every environment.
 	Promotion() PromotionView
+	// Capabilities resolves what this reader may do in one namespace, so every
+	// control renders disabled-with-a-reason rather than hidden.
+	Capabilities(contextName, namespace string) CapabilitiesView
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -108,6 +111,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/forwards", s.handleForwards)
 	mux.HandleFunc("/api/promotion", s.handlePromotion)
+	mux.HandleFunc("/api/can", s.handleCapabilities)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +316,16 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 //
 // Opening and closing are POSTs because they change what is listening on the
 // developer's machine, which is not something a link should be able to do.
+func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	ctxName, ns := q.Get("context"), q.Get("namespace")
+	if ctxName == "" || ns == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context and namespace are required"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.api.Capabilities(ctxName, ns))
+}
+
 // handlePromotion answers "is the fix in prod yet".
 func (s *Server) handlePromotion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.api.Promotion())

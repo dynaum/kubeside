@@ -210,6 +210,19 @@ export interface ForwardView {
   error?: string;
 }
 
+export interface Permission {
+  allowed: boolean;
+  reason?: string;
+}
+
+// What this reader may do in one namespace of one context. Controls render
+// disabled with the verb named, never hidden.
+export interface CapabilitiesView {
+  context: string;
+  namespace: string;
+  can: Record<string, Permission>;
+}
+
 export interface PromotionCell {
   env: string;
   namespace?: string;
@@ -305,6 +318,10 @@ export const api = {
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
   promotion: () => get<PromotionView>("/api/promotion"),
+  can: (context: string, namespace: string) =>
+    get<CapabilitiesView>(
+      `/api/can?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}`,
+    ),
   forwards: () => get<ForwardView[]>("/api/forwards"),
   startForward: (context: string, namespace: string, workload: string, remotePort: number) =>
     post<ForwardView>("/api/forwards", { context, namespace, workload, remotePort }),
