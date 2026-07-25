@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
+	"github.com/dynaum/kubeside/internal/timeline"
+	"k8s.io/apimachinery/pkg/types"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -25,6 +28,9 @@ type Service struct {
 	conf    *config.Config
 	opts    kubeconfig.Options
 	timeout time.Duration
+	// timelines memoizes reconstruction, which reads several collections per
+	// call and is triggered by opening a screen.
+	timelines *memo[TimelineView]
 }
 
 // NewService builds the API backend. conf may be nil, which is the zero-config
@@ -36,7 +42,10 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 	if conf == nil {
 		conf = config.Empty()
 	}
-	return &Service{cfg: cfg, mgr: mgr, conf: conf, opts: opts, timeout: timeout}
+	return &Service{
+		cfg: cfg, mgr: mgr, conf: conf, opts: opts, timeout: timeout,
+		timelines: newMemo[TimelineView](memoTTL),
+	}
 }
 
 // Contexts returns every context with its live connection state, in connect
@@ -164,25 +173,100 @@ func (s *Service) LogSource(contextName, namespace, workload string) (logs.Sourc
 // screen. The read is a full snapshot today; informer-backed watches (#23)
 // make it cheap without changing this contract.
 func (s *Service) podsOf(ctx context.Context, contextName, namespace, workload string) ([]string, error) {
-	client, ok := s.mgr.ClientFor(contextName)
-	if !ok {
-		return nil, fmt.Errorf("context %q is not connected", contextName)
-	}
-	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(contextName))
+	app, err := s.appOf(ctx, contextName, namespace, workload)
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range snap.Apps {
-		if a.Key.Namespace != namespace || a.Key.Name != workload {
-			continue
-		}
-		var pods []string
-		for _, w := range a.Workloads {
-			if w.Kind == "Pod" {
-				pods = append(pods, w.Name)
-			}
-		}
-		return pods, nil
+	return podNames(app), nil
+}
+
+// Timeline reconstructs one workload's history from the cluster.
+//
+// Nothing here was recorded by kubeside: every entry is assembled on demand
+// from what Kubernetes still holds, which is why two developers opening the
+// same app see the same history.
+func (s *Service) Timeline(contextName, namespace, workload string) (TimelineView, error) {
+	if _, ok := s.cfg.Get(contextName); !ok {
+		return TimelineView{}, errUnknownContext(contextName)
 	}
-	return nil, fmt.Errorf("no workload %q in namespace %q of context %q", workload, namespace, contextName)
+	key := contextName + "|" + namespace + "/" + workload
+	return s.timelines.Do(key, func() (TimelineView, error) {
+		return s.reconstruct(contextName, namespace, workload)
+	})
+}
+
+func (s *Service) reconstruct(contextName, namespace, workload string) (TimelineView, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return TimelineView{}, err
+	}
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return TimelineView{}, fmt.Errorf("context %q is not connected", contextName)
+	}
+
+	app, err := s.appOf(ctx, contextName, namespace, workload)
+	if err != nil {
+		return TimelineView{}, err
+	}
+
+	tl := timeline.Reconstruct(ctx, client, timeline.Target{
+		Namespace: namespace,
+		Name:      workload,
+		Kind:      app.Kind,
+		UID:       types.UID(ownerUID(app)),
+		Pods:      podNames(app),
+	})
+
+	return TimelineView{
+		Context:   contextName,
+		Namespace: namespace,
+		Workload:  workload,
+		Entries:   tl.Entries,
+		Horizons:  tl.Horizons,
+		Gaps:      tl.Gaps,
+	}, nil
+}
+
+// appOf finds one app in the current snapshot. The grouping engine already
+// decided what an app is; the timeline asks it rather than guessing again.
+func (s *Service) appOf(ctx context.Context, contextName, namespace, workload string) (apps.App, error) {
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return apps.App{}, fmt.Errorf("context %q is not connected", contextName)
+	}
+	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(contextName))
+	if err != nil {
+		return apps.App{}, err
+	}
+	for _, a := range snap.Apps {
+		if a.Key.Namespace == namespace && a.Key.Name == workload {
+			return a, nil
+		}
+	}
+	return apps.App{}, fmt.Errorf("no workload %q in namespace %q of context %q", workload, namespace, contextName)
+}
+
+// ownerUID is the UID of the app's primary workload, which is how history is
+// attributed to this app and not to a same-named one that was deleted and
+// recreated.
+func ownerUID(a apps.App) string {
+	for _, w := range a.Workloads {
+		if w.Kind == a.Kind && w.Name == a.Key.Name {
+			return w.UID
+		}
+	}
+	return ""
+}
+
+func podNames(a apps.App) []string {
+	var out []string
+	for _, w := range a.Workloads {
+		if w.Kind == "Pod" {
+			out = append(out, w.Name)
+		}
+	}
+	return out
 }

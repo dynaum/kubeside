@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/timeline"
 )
 
 // The view types are the JSON contract with the browser. They are deliberately
@@ -48,6 +49,17 @@ type MetricsInfo struct {
 	Source    string `json:"source"`
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
+}
+
+// TimelineView is one app's reconstructed history, plus the honesty metadata:
+// where each source ran out and which could not be read at all.
+type TimelineView struct {
+	Context   string             `json:"context"`
+	Namespace string             `json:"namespace"`
+	Workload  string             `json:"workload"`
+	Entries   []timeline.Entry   `json:"entries"`
+	Horizons  []timeline.Horizon `json:"horizons,omitempty"`
+	Gaps      []timeline.Gap     `json:"gaps,omitempty"`
 }
 
 // AppView is one row.

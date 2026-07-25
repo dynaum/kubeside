@@ -33,6 +33,10 @@ func (s *streamStub) LogSource(_, _, _ string) (logs.Source, error) {
 	return s.logSource, nil
 }
 
+func (s *streamStub) Timeline(_, _, _ string) (TimelineView, error) {
+	return TimelineView{}, errors.New("no timeline in this test")
+}
+
 func (s *streamStub) Contexts() []ContextView {
 	return []ContextView{{Name: "qa", Current: true, State: "live", HasData: true}}
 }

@@ -54,6 +54,8 @@ type API interface {
 	// because a log stream outlives a single read: the transport keeps it for
 	// as long as a window is watching.
 	LogSource(contextName, namespace, workload string) (logs.Source, error)
+	// Timeline reconstructs one workload's history from the cluster, on demand.
+	Timeline(contextName, namespace, workload string) (TimelineView, error)
 }
 
 // Option configures a Server.
@@ -79,6 +81,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/contexts", s.handleContexts)
 	mux.HandleFunc("/api/apps", s.handleApps)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -232,6 +235,23 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.api.Apps(name)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleTimeline reconstructs history on demand, which is when a developer
+// opens an app rather than at startup: launch stays cheap.
+func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	ctxName, ns, workload := q.Get("context"), q.Get("namespace"), q.Get("workload")
+	if ctxName == "" || ns == "" || workload == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context, namespace and workload are required"})
+		return
+	}
+	out, err := s.api.Timeline(ctxName, ns, workload)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

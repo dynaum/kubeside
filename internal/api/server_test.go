@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
 	"github.com/dynaum/kubeside/internal/logs"
+	"github.com/dynaum/kubeside/internal/timeline"
 )
 
 type stubAPI struct {
@@ -20,6 +23,17 @@ func (s stubAPI) Contexts() []ContextView { return s.contexts }
 
 func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 	return nil, errors.New("no log source in this test")
+}
+
+func (s stubAPI) Timeline(contextName, namespace, workload string) (TimelineView, error) {
+	if workload != "checkout" {
+		return TimelineView{}, errors.New("no workload " + workload)
+	}
+	return TimelineView{
+		Context: contextName, Namespace: namespace, Workload: workload,
+		Entries: []timeline.Entry{{At: time.Unix(0, 0), Kind: timeline.KindDeploy, Title: "revision 3"}},
+		Gaps:    []timeline.Gap{{Source: "helm", Reason: "needs read access to secrets in this namespace"}},
+	}, nil
 }
 
 func (s stubAPI) Apps(name string) (AppsView, error) {
@@ -311,5 +325,52 @@ func TestCSPAllowsPlexFontsOnly(t *testing.T) {
 	}
 	if strings.Contains(csp, "unsafe-eval") {
 		t.Errorf("CSP must not allow eval: %q", csp)
+	}
+}
+
+func TestTimelineRequiresEveryCoordinate(t *testing.T) {
+	s := newTestServer(t)
+	for _, target := range []string{
+		"/api/timeline?",
+		"/api/timeline?context=qa&",
+		"/api/timeline?context=qa&namespace=team-a&",
+	} {
+		if got := do(t, s, "GET", target+tokenParam+"="+s.Token(), nil).Code; got != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", target, got)
+		}
+	}
+}
+
+func TestTimelineReturnsEntriesAndGaps(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/timeline?context=qa&namespace=team-a&workload=checkout&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got TimelineView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Kind != timeline.KindDeploy {
+		t.Errorf("entries = %+v", got.Entries)
+	}
+	// A source that could not be read travels with the answer, never silently.
+	if len(got.Gaps) != 1 || got.Gaps[0].Source != "helm" {
+		t.Errorf("gaps = %+v", got.Gaps)
+	}
+}
+
+func TestTimelineUnknownWorkloadIs404(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/timeline?context=qa&namespace=team-a&workload=ghost&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestTimelineNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/timeline?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401: the timeline carries cluster data", got)
 	}
 }

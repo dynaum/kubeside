@@ -151,7 +151,17 @@ history unavailable: needs read access to secrets". Never an error state, never
 silent absence.
 
 Reconstruction runs on demand when an app detail view opens, not at startup, so
-launch stays cheap. Results are memoized for the session.
+launch stays cheap. Results are memoized for thirty seconds rather than for the
+whole session: until live extension lands, a cache that never expires would hide
+a rollout that happened while the window was open, and a timeline that quietly
+lags is worse than one that costs a read.
+
+Each source is read independently and a failure in one becomes a labeled gap
+rather than an error, so a read-only prod role that cannot read secrets still
+gets rollouts, crashes, and warnings. The event horizon is dated from the oldest
+event in the namespace, not the oldest event for the app: the apiserver's
+retention is what ends there, and dating it from one quiet app would claim a cut
+that is not real.
 
 An important property: two developers opening kubeside see the same
 reconstructed timeline, because both read the same cluster. A local database
