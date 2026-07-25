@@ -85,3 +85,32 @@ jobs:
         run: npm --prefix web run test
       - name: Typecheck and build
         run: npm --prefix web run build
+
+  # Visual regression is a product risk when design is the differentiator, so
+  # this is a gate rather than a report. It runs in the same container the
+  # baselines were generated in: font rendering differs enough between
+  # platforms that a host-generated baseline would fail every run and teach
+  # everybody to ignore the gate.
+  visual:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm --prefix web ci
+      - name: Build the UI the screenshots are of
+        run: npm --prefix web run build
+      - name: Screenshot diff gate
+        run: npm --prefix web run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-diff
+          path: web/test-results/
+          retention-days: 7
