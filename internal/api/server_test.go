@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dynaum/kubeside/internal/forward"
+	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/rbac"
@@ -30,6 +31,27 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) Gate(req GateRequest) (GateView, error) {
+	if req.Context == "prod" {
+		return GateView{
+			Gate: guard.Gate{
+				Environment: "prod", Risk: "high", Policy: "deny",
+				Reason: "writes are denied in prod by the write policy in your kubeside config",
+			},
+			Permission: rbac.Permission{Allowed: true},
+		}, nil
+	}
+	return GateView{
+		Gate: guard.Gate{
+			Permitted: true, Require: guard.RequireTypedName, Confirm: req.Name,
+			Environment: "qa", Risk: "low", Policy: "confirm",
+			Kubectl: "kubectl " + req.Verb + " " + req.Resource + " " + req.Name,
+			Blast:   guard.Blast{Pods: 1, Summary: "one of four replicas"},
+		},
+		Permission: rbac.Permission{Allowed: true},
+	}, nil
+}
 
 func (s stubAPI) Capabilities(contextName, namespace string) CapabilitiesView {
 	allowed := contextName == "qa"
@@ -772,5 +794,81 @@ func TestCapabilitiesRequireBothCoordinates(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/can?context=qa&"+tokenParam+"="+s.Token(), nil).Code; got != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", got)
+	}
+}
+
+// The dialog needs everything at once: which environment, what to type, what it
+// touches, and the command it stands for.
+func TestGateReturnsTheCeremonyAndTheBlastRadius(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/gate?"+tokenParam+"="+s.Token(),
+		`{"context":"qa","namespace":"team-a","verb":"delete","resource":"pod","name":"checkout-1"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got GateView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Gate.Require != "typed-name" || got.Gate.Confirm != "checkout-1" {
+		t.Fatalf("gate = %+v, want a typed confirmation", got.Gate)
+	}
+	if got.Gate.Environment == "" || got.Gate.Kubectl == "" || got.Gate.Blast.Summary == "" {
+		t.Fatalf("gate = %+v, want the environment, the command and the radius", got.Gate)
+	}
+}
+
+func TestGateRefusesInADenyEnvironmentAndSaysWhy(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/gate?"+tokenParam+"="+s.Token(),
+		`{"context":"prod","namespace":"team-a","verb":"delete","resource":"pod","name":"checkout-1"}`)
+
+	var got GateView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Gate.Permitted {
+		t.Fatal("a deny environment must not permit the action")
+	}
+	// The guardrail refuses while the cluster would have allowed it, which is
+	// exactly the distinction between ergonomics and the security boundary.
+	if !got.Permission.Allowed {
+		t.Error("the permission and the guardrail are different answers and both travel")
+	}
+}
+
+// Asking can arm an environment, so a link must not be able to.
+func TestGateRefusesGET(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/gate?"+tokenParam+"="+s.Token(), nil).Code; got != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", got)
+	}
+}
+
+func TestGateNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/gate",
+		`{"context":"qa","namespace":"team-a","verb":"delete","resource":"pod","name":"checkout-1"}`)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+// A question about an environment names only the environment: somebody arming
+// prod before deciding what to do in it.
+func TestGateAcceptsAnEnvironmentOnlyQuestion(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/gate?"+tokenParam+"="+s.Token(), `{"context":"qa","namespace":"team-a"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// A question about an action still has to say what it acts on.
+func TestGateRefusesAVerbWithNoObject(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/gate?"+tokenParam+"="+s.Token(), `{"context":"qa","verb":"delete"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }

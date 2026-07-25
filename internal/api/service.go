@@ -14,6 +14,7 @@ import (
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/forward"
+	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
@@ -55,6 +56,10 @@ type Service struct {
 	// stale connection renders instead of an empty cluster.
 	snapsMu sync.Mutex
 	snaps   map[string]clusters.Snapshot
+	// guard is the ceremony between a developer and a destructive action. It
+	// protects against accidents; the permission check beside it is the
+	// security boundary.
+	guard *guard.Guard
 	// perms answers what this reader may do, per context, cached for the
 	// session. Every disabled control in the UI is disabled because a cluster
 	// said so.
@@ -83,6 +88,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 		live:      session.New(session.Limits{}),
 		startedAt: time.Now(),
 		snaps:     map[string]clusters.Snapshot{},
+		guard:     guard.New(nil),
 		perms:     rbac.New(rbac.KubeReviewer{ClientFor: mgr.ClientFor}),
 		forwards: forward.New(forward.KubeTunnel{
 			RESTConfig: func(contextName string) (*rest.Config, error) {
@@ -1080,3 +1086,139 @@ const janitorInterval = time.Minute
 // enough to survive a developer reading a screen, short enough that a window
 // left open on a stale tab stops costing pod reads.
 const activeWindow = 2 * time.Minute
+
+// Gate answers what an action costs in one environment, and whether the cluster
+// would allow it at all.
+//
+// Both halves travel together on purpose. The guardrail is ergonomics against
+// acting in the wrong window; the permission is the security boundary. A UI
+// that shows one without the other teaches the wrong lesson about which is
+// which.
+func (s *Service) Gate(req GateRequest) (GateView, error) {
+	kctx, ok := s.cfg.Get(req.Context)
+	if !ok {
+		return GateView{}, errUnknownContext(req.Context)
+	}
+	env := s.conf.Environment(kctx)
+
+	if req.Unlock != "" {
+		rec, err := s.guard.Unlock(req.Context, req.Unlock)
+		if err != nil {
+			return GateView{}, err
+		}
+		// Arming production is an event, not a setting, so it lands on the
+		// timeline beside every other change.
+		s.live.Record(sessionKey(req.Context, req.Namespace, req.Name), timeline.Entry{
+			At:     rec.At,
+			Kind:   timeline.KindBreakGlass,
+			Title:  "unlocked " + env.Name + " for writes",
+			Detail: rec.Reason,
+			Source: "session",
+			Actor:  timeline.Actor{Kind: timeline.ActorKubectl, Name: "this kubeside session"},
+		})
+	}
+
+	// An unlock on its own asks about the environment rather than about a
+	// specific object: somebody arming prod before deciding what to do in it.
+	if req.Verb == "" {
+		action := guard.Action{
+			Verb: "write", Resource: "environment", Name: env.Name, Namespace: req.Namespace,
+		}
+		return GateView{
+			Gate:       s.guard.Check(req.Context, env, action),
+			Permission: rbac.Permission{Allowed: true},
+		}, nil
+	}
+
+	action := guard.Action{
+		Verb: req.Verb, Resource: req.Resource, Name: req.Name, Namespace: req.Namespace,
+		Kubectl: kubectlFor(req),
+		Blast:   s.blastRadius(req),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	// Connect first: an unconnected cluster cannot answer, and "could not
+	// check" for a context nobody has opened yet is noise rather than a
+	// finding.
+	if err := s.mgr.Connect(ctx, req.Context); err != nil {
+		return GateView{
+			Gate: s.guard.Check(req.Context, env, action),
+			Permission: rbac.Permission{
+				Reason: fmt.Sprintf("could not reach %s to check permission: %v", req.Context, err),
+			},
+		}, nil
+	}
+	perm := s.perms.Can(ctx, req.Context, rbac.Action{
+		Verb: req.Verb, Resource: pluralize(req.Resource), Name: req.Name, Namespace: req.Namespace,
+	})
+
+	return GateView{Gate: s.guard.Check(req.Context, env, action), Permission: perm}, nil
+}
+
+// blastRadius counts what an action touches, from the snapshot already in hand.
+//
+// A radius nobody computed renders as unknown rather than as zero: "0 pods
+// affected" is a claim, and an uncomputed number is not one.
+func (s *Service) blastRadius(req GateRequest) guard.Blast {
+	snap, ok := s.lastSnapshot(req.Context)
+	if !ok {
+		return guard.Blast{Unknown: true}
+	}
+
+	switch req.Resource {
+	case "pod":
+		for _, a := range snap.Apps {
+			for _, w := range a.Workloads {
+				if w.Kind == "Pod" && w.Name == req.Name && w.Namespace == req.Namespace {
+					return guard.Blast{
+						Pods:    1,
+						Summary: fmt.Sprintf("one of %d pods backing %s", countPods(a), a.Key.Name),
+					}
+				}
+			}
+		}
+	default:
+		for _, a := range snap.Apps {
+			if a.Key.Name == req.Name && a.Key.Namespace == req.Namespace {
+				n := countPods(a)
+				return guard.Blast{Pods: n, Summary: fmt.Sprintf("%d pods backing %s", n, a.Key.Name)}
+			}
+		}
+	}
+	return guard.Blast{Unknown: true}
+}
+
+func countPods(a apps.App) int {
+	n := 0
+	for _, w := range a.Workloads {
+		if w.Kind == "Pod" {
+			n++
+		}
+	}
+	return n
+}
+
+// kubectlFor renders the equivalent command, which is how somebody checks the
+// tool's understanding against their own before agreeing to it.
+func kubectlFor(req GateRequest) string {
+	return fmt.Sprintf("kubectl %s %s %s -n %s --context %s",
+		req.Verb, req.Resource, req.Name, req.Namespace, req.Context)
+}
+
+// pluralize turns the resource a dialog names into the one an access review
+// wants. Only the kinds kubeside acts on are listed: guessing at plurals for
+// arbitrary resources would produce permission questions nobody can answer.
+func pluralize(resource string) string {
+	switch resource {
+	case "pod":
+		return "pods"
+	case "deployment":
+		return "deployments"
+	case "statefulset":
+		return "statefulsets"
+	case "daemonset":
+		return "daemonsets"
+	}
+	return resource
+}

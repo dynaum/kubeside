@@ -6,6 +6,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
@@ -156,6 +157,24 @@ type ForwardRequest struct {
 	Pod        string `json:"pod,omitempty"`
 	RemotePort int    `json:"remotePort"`
 	LocalPort  int    `json:"localPort,omitempty"`
+}
+
+// GateRequest asks what ceremony an action needs in one environment.
+type GateRequest struct {
+	Context   string `json:"context"`
+	Namespace string `json:"namespace"`
+	Verb      string `json:"verb"`
+	Resource  string `json:"resource"`
+	Name      string `json:"name"`
+	// Unlock, when set, arms the environment with this reason before answering.
+	Unlock string `json:"unlock,omitempty"`
+}
+
+// GateView is the answer, with everything a confirmation dialog must show:
+// which environment, what it touches, and the equivalent command.
+type GateView struct {
+	Gate       guard.Gate      `json:"gate"`
+	Permission rbac.Permission `json:"permission"`
 }
 
 // CapabilitiesView is what this reader may do in one namespace of one context.

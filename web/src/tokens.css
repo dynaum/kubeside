@@ -213,3 +213,15 @@ body {
 .cell-denied { color: var(--unknown); font-family: var(--font-cond); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 .drift-flag { font-family: var(--font-cond); font-size: 9px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--warn); }
 .drift-flag.ahead { color: var(--err); }
+
+/* Confirmation dialog, ported from the design system. */
+.scrim { position: absolute; inset: 0; background: rgba(4,7,8,.66); display: flex; align-items: flex-start; justify-content: center; padding-top: 120px; z-index: 60; }
+.dialog { width: 460px; background: var(--overlay); border: 1px solid var(--line); border-radius: var(--r3); box-shadow: var(--shadow); overflow: hidden; }
+.dialog-head { padding: var(--s4); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: var(--s3); }
+.dialog-body { padding: var(--s4); }
+.dialog-foot { padding: var(--s3) var(--s4); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: var(--s2); background: var(--surface); }
+.blast { border: 1px solid var(--line); border-radius: var(--r1); padding: var(--s3); margin: var(--s3) 0; background: var(--surface); font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); }
+.blast dt { font-family: var(--font-cond); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-4); float: left; clear: left; width: 112px; }
+.blast dd { margin: 0 0 3px 112px; }
+.btn-danger { border-color: var(--err); color: var(--err); background: transparent; }
+.btn-danger:hover { background: color-mix(in srgb, var(--err) 14%, transparent); }

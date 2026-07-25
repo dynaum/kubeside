@@ -36,6 +36,9 @@ const (
 	// KindHealth is a live transition kubeside watched happen, rather than
 	// something reconstructed from the cluster's own records.
 	KindHealth = "health"
+	// KindBreakGlass records somebody arming an environment for writes.
+	// Arming production is an event, not a setting.
+	KindBreakGlass = "break-glass"
 	// KindReveal records that somebody read a secret value through kubeside.
 	// Reading a production credential should leave a trace in the same place
 	// every other change does.

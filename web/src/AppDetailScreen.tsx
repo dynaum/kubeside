@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { envToken, healthClass } from "./health";
 import { Glyph } from "./Status";
+import { Confirm } from "./Confirm";
 import {
   age, clock, fullyUnknown, laneEntries, LANES, marker, position, span, ticks, type Span,
 } from "./detail";
@@ -35,6 +36,7 @@ export function AppDetailScreen({
   const [forwardErr, setForwardErr] = useState<string | null>(null);
   const [port, setPort] = useState("8080");
   const [can, setCan] = useState<CapabilitiesView | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
 
   useEffect(() => {
     setView(null);
@@ -98,6 +100,14 @@ export function AppDetailScreen({
           </span>
         )}
         <span className="spacer" />
+        {/* The write policy is stated wherever an action might be taken, so
+            nobody has to remember which environment this is. */}
+        <span className="tag" style={{ color: writeColour(context.write) }} title={`writes are ${context.write} here`}>
+          writes {context.write}
+        </span>
+        {(context.write === "break-glass" || context.write === "deny") && (
+          <button className="btn" onClick={() => setUnlocking(true)}>Unlock writes</button>
+        )}
         <input
           className="field"
           style={{ minWidth: 70, width: 70 }}
@@ -119,6 +129,19 @@ export function AppDetailScreen({
         </span>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
+
+      {unlocking && (
+        <Confirm
+          context={context.name}
+          namespace={namespace}
+          verb=""
+          resource=""
+          name={workload}
+          unlockOnly
+          onCancel={() => setUnlocking(false)}
+          onConfirm={() => setUnlocking(false)}
+        />
+      )}
 
       <div className="page">
         {/* A tunnel into production is a different thing from one into qa, so
@@ -430,6 +453,17 @@ function forwardDenied(can: CapabilitiesView | null): string | null {
     }
   }
   return null;
+}
+
+// writeColour follows the risk the policy implies: denied is not a warning, it
+// is the answer.
+function writeColour(policy: string): string {
+  switch (policy) {
+    case "allow": return "var(--ok)";
+    case "confirm": return "var(--warn)";
+    case "break-glass": return "var(--warn)";
+  }
+  return "var(--err)";
 }
 
 function secondsSince(iso: string): number {

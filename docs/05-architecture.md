@@ -43,6 +43,7 @@ internal/resolved     resolved configuration merge with provenance
 internal/logs         multi-pod stream merge, backpressure, ring buffer
 internal/forward      port-forward lifecycle, loopback-only listeners
 internal/rbac         per-context permission resolution, cached for the session
+internal/guard        write policy, typed confirmation, break-glass windows
 internal/metrics      source interface: metrics-server, prometheus, none
 internal/session      in-memory ring buffers, eviction, horizon tracking
 internal/api          HTTP + websocket handlers
@@ -332,6 +333,28 @@ the whole game:
 Environment classification from context names is described in
 [04-multi-cluster.md](04-multi-cluster.md). A file watcher on the kubeconfig
 picks up newly added contexts without a restart.
+
+### Guardrails and the security boundary
+
+The layers in [04-multi-cluster.md](04-multi-cluster.md) are enforced in
+`internal/guard`: the write policy comes from the environment, a confirm
+environment wants the resource name typed, a break-glass environment stays
+locked until somebody unlocks it with a stated reason, and the window closes
+itself after fifteen minutes. Every gate carries the environment name, the blast
+radius, and the equivalent kubectl, because nobody should confirm something they
+have not seen. A gate is always about exactly one environment; there is no shape
+in the API that could address two.
+
+Unlocking is recorded on the session timeline. Arming production is an event,
+not a setting, and the reason is what makes it legible afterwards.
+
+The boundary, repeated here because it is the thing most easily misread: these
+layers protect against accidents, not intent. The write policy lives in a config
+file the user owns and can edit in a second. RBAC is the security boundary, and
+every gate carries the cluster's own answer beside the guardrail's so the two
+are never confused. A guardrail that refuses while the cluster would have
+allowed the action is ergonomics working; a cluster that refuses is the boundary
+working.
 
 ### Authentication
 

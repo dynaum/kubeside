@@ -223,6 +223,30 @@ export interface CapabilitiesView {
   can: Record<string, Permission>;
 }
 
+export interface GateBlast {
+  pods: number;
+  summary?: string;
+  unknown?: boolean;
+}
+
+export interface Gate {
+  permitted: boolean;
+  require?: string; // "", typed-name, break-glass
+  confirm?: string;
+  environment: string;
+  risk: string;
+  policy: string;
+  reason?: string;
+  kubectl?: string;
+  blast: GateBlast;
+  unlockedUntil?: string;
+}
+
+export interface GateView {
+  gate: Gate;
+  permission: Permission;
+}
+
 export interface PromotionCell {
   env: string;
   namespace?: string;
@@ -318,6 +342,14 @@ export const api = {
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
   promotion: () => get<PromotionView>("/api/promotion"),
+  gate: (req: {
+    context: string;
+    namespace: string;
+    verb: string;
+    resource: string;
+    name: string;
+    unlock?: string;
+  }) => post<GateView>("/api/gate", req),
   can: (context: string, namespace: string) =>
     get<CapabilitiesView>(
       `/api/can?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}`,

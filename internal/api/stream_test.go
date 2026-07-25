@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/dynaum/kubeside/internal/forward"
+	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/rbac"
@@ -52,6 +53,27 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) Gate(req GateRequest) (GateView, error) {
+	if req.Context == "prod" {
+		return GateView{
+			Gate: guard.Gate{
+				Environment: "prod", Risk: "high", Policy: "deny",
+				Reason: "writes are denied in prod by the write policy in your kubeside config",
+			},
+			Permission: rbac.Permission{Allowed: true},
+		}, nil
+	}
+	return GateView{
+		Gate: guard.Gate{
+			Permitted: true, Require: guard.RequireTypedName, Confirm: req.Name,
+			Environment: "qa", Risk: "low", Policy: "confirm",
+			Kubectl: "kubectl " + req.Verb + " " + req.Resource + " " + req.Name,
+			Blast:   guard.Blast{Pods: 1, Summary: "one of four replicas"},
+		},
+		Permission: rbac.Permission{Allowed: true},
+	}, nil
 }
 
 func (s *streamStub) Capabilities(contextName, namespace string) CapabilitiesView {
