@@ -30,6 +30,73 @@ export interface AppView {
   objects: number;
 }
 
+export interface TimelineActor {
+  kind?: string;
+  name?: string;
+}
+
+export interface TimelineEntry {
+  at: string;
+  kind: string; // deploy, release, restart, warning, health, scale, run
+  title: string;
+  detail?: string;
+  source: string;
+  revision?: string;
+  image?: string;
+  pod?: string;
+  actor?: TimelineActor;
+}
+
+// A horizon is where one source ran out. Pruned distinguishes a cut in
+// something that was known from the point where watching simply began.
+export interface TimelineHorizon {
+  at: string;
+  source: string;
+  reason: string;
+  pruned: boolean;
+}
+
+// A gap is a source that could not be read at all, with what it needs.
+export interface TimelineGap {
+  source: string;
+  reason: string;
+}
+
+export interface TimelineView {
+  context: string;
+  namespace: string;
+  workload: string;
+  entries: TimelineEntry[];
+  horizons?: TimelineHorizon[];
+  gaps?: TimelineGap[];
+}
+
+export interface PodView {
+  name: string;
+  phase?: string;
+  health: string;
+  ready: boolean;
+  restarts: number;
+  ageSec?: number;
+  reason?: string;
+}
+
+export interface AppDetailView {
+  context: string;
+  namespace: string;
+  workload: string;
+  kind: string;
+  health: string;
+  reason?: string;
+  detail?: string;
+  ready?: string;
+  image?: string;
+  revisionAt?: string;
+  restarts: number;
+  pods: PodView[];
+  timeline: TimelineView;
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -66,4 +133,8 @@ async function get<T>(path: string): Promise<T> {
 export const api = {
   contexts: () => get<ContextView[]>("/api/contexts"),
   apps: (context: string) => get<AppsView>(`/api/apps?context=${encodeURIComponent(context)}`),
+  app: (context: string, namespace: string, workload: string) =>
+    get<AppDetailView>(
+      `/api/app?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,
+    ),
 };

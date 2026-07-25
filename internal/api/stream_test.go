@@ -50,6 +50,10 @@ func (s *streamStub) observedChanges() []string {
 	return out
 }
 
+func (s *streamStub) AppDetail(_, _, _ string) (AppDetailView, error) {
+	return AppDetailView{}, errors.New("no detail in this test")
+}
+
 func (s *streamStub) Timeline(_, _, _ string) (TimelineView, error) {
 	return TimelineView{}, errors.New("no timeline in this test")
 }

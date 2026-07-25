@@ -3,6 +3,7 @@ import { api, type ContextView } from "./api";
 import { Rail } from "./Rail";
 import { AppsScreen } from "./AppsScreen";
 import { LogsScreen } from "./LogsScreen";
+import { AppDetailScreen } from "./AppDetailScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 
@@ -85,6 +86,20 @@ export function App() {
             onOpenLogs={(namespace, workload) =>
               go({ screen: "logs", context: current.name, namespace, workload })
             }
+            onOpenApp={(namespace, workload) =>
+              go({ screen: "app", context: current.name, namespace, workload })
+            }
+          />
+        )}
+        {current && route.screen === "app" && (
+          <AppDetailScreen
+            context={current}
+            namespace={route.namespace}
+            workload={route.workload}
+            onOpenLogs={() =>
+              go({ screen: "logs", context: current.name, namespace: route.namespace, workload: route.workload })
+            }
+            onBack={() => go({ screen: "apps", context: current.name })}
           />
         )}
         {current && route.screen === "logs" && (

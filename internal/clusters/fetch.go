@@ -337,6 +337,7 @@ func fromMeta(kind string, m *metav1.ObjectMeta) apps.Object {
 		UID:         string(m.UID),
 		Labels:      m.Labels,
 		Annotations: m.Annotations,
+		Created:     m.CreationTimestamp.Time,
 	}
 	for _, ref := range m.OwnerReferences {
 		o.Owners = append(o.Owners, apps.Owner{

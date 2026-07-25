@@ -11,9 +11,11 @@ const ATTENTION: Record<string, number> = {
 export function AppsScreen({
   context,
   onOpenLogs,
+  onOpenApp,
 }: {
   context: ContextView;
   onOpenLogs: (namespace: string, workload: string) => void;
+  onOpenApp: (namespace: string, workload: string) => void;
 }) {
   const [filter, setFilter] = useState("");
   // The screen is a subscription, not a fetch: one snapshot, then patches for
@@ -60,19 +62,20 @@ export function AppsScreen({
       <div className="page">
         {err && <Empty head="Could not load apps" body={err} />}
         {!err && !view && <div><span className="spinner" /> <span style={{ color: "var(--fg-3)" }}>connecting to {context.name}…</span></div>}
-        {view && <Body view={view} rows={rows} totalShown={rows.length} onOpenLogs={onOpenLogs} />}
+        {view && <Body view={view} rows={rows} totalShown={rows.length} onOpenLogs={onOpenLogs} onOpenApp={onOpenApp} />}
       </div>
     </>
   );
 }
 
 function Body({
-  view, rows, onOpenLogs,
+  view, rows, onOpenLogs, onOpenApp,
 }: {
   view: AppsView;
   rows: AppView[];
   totalShown: number;
   onOpenLogs: (namespace: string, workload: string) => void;
+  onOpenApp: (namespace: string, workload: string) => void;
 }) {
   if (!hasData(view.state)) {
     return (
@@ -123,7 +126,15 @@ function Body({
             <tr key={`${a.namespace}/${a.name}`}>
               <td><Glyph health={a.health} /></td>
               <td className="ns">{a.namespace}</td>
-              <td className="name">{a.name}</td>
+              <td className="name">
+                <button
+                  className="tab"
+                  style={{ padding: 0, textTransform: "none", letterSpacing: 0, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg)" }}
+                  onClick={() => onOpenApp(a.namespace, a.name)}
+                >
+                  {a.name}
+                </button>
+              </td>
               <td className="dim">
                 {a.kind}
                 {a.managedBy && <span className="tag tag-managed" style={{ marginLeft: 6 }}>via {a.managedBy}</span>}

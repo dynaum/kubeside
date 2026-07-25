@@ -311,3 +311,63 @@ func podNames(a apps.App) []string {
 	}
 	return out
 }
+
+// AppDetail is everything Screen 2 needs in one read.
+//
+// The current state comes from the grouping engine, the history from
+// reconstruction, and the running image from the newest rollout, which is the
+// only place it survives without a second read.
+func (s *Service) AppDetail(contextName, namespace, workload string) (AppDetailView, error) {
+	if _, ok := s.cfg.Get(contextName); !ok {
+		return AppDetailView{}, errUnknownContext(contextName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return AppDetailView{}, err
+	}
+
+	app, err := s.appOf(ctx, contextName, namespace, workload)
+	if err != nil {
+		return AppDetailView{}, err
+	}
+
+	tl, err := s.Timeline(contextName, namespace, workload)
+	if err != nil {
+		return AppDetailView{}, err
+	}
+
+	h := apps.Assess(app)
+	view := AppDetailView{
+		Context:   contextName,
+		Namespace: namespace,
+		Workload:  workload,
+		Kind:      app.Kind,
+		Health:    h.Health.String(),
+		Reason:    h.Reason,
+		Detail:    h.Detail,
+		Ready:     readyRatio(app),
+		Pods:      PodsOf(app, time.Now()),
+		Timeline:  tl,
+	}
+	for _, p := range view.Pods {
+		view.Restarts += p.Restarts
+	}
+	if e, ok := newestRollout(tl.Entries); ok {
+		view.Image = e.Image
+		view.RevisionAt = e.At.UTC().Format(time.RFC3339)
+	}
+	return view, nil
+}
+
+// newestRollout finds the most recent deploy, which is what the app is running
+// now.
+func newestRollout(entries []timeline.Entry) (timeline.Entry, bool) {
+	for _, e := range entries {
+		if e.Kind == timeline.KindDeploy {
+			return e, true
+		}
+	}
+	return timeline.Entry{}, false
+}

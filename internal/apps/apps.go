@@ -16,6 +16,9 @@ type Object struct {
 	Labels      map[string]string
 	Annotations map[string]string
 	Owners      []Owner
+	// Created is the object's creation time, which is how a pod's age is
+	// rendered without a second read.
+	Created time.Time
 
 	// Status carries the fields health derivation needs. Kept as plain data
 	// rather than client-go types so the engine stays pure and testable

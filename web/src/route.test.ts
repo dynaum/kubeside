@@ -8,6 +8,12 @@ describe("parseRoute", () => {
     });
   });
 
+  it("reads an app detail permalink", () => {
+    expect(parseRoute("#app/prod-eks/team-a/checkout")).toEqual({
+      screen: "app", context: "prod-eks", namespace: "team-a", workload: "checkout",
+    });
+  });
+
   it("reads an apps route", () => {
     expect(parseRoute("#apps/qa1")).toEqual({ screen: "apps", context: "qa1" });
   });

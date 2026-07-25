@@ -1,6 +1,9 @@
 package api
 
 import (
+	"sort"
+	"time"
+
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/timeline"
@@ -49,6 +52,41 @@ type MetricsInfo struct {
 	Source    string `json:"source"`
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
+}
+
+// AppDetailView is everything Screen 2 renders: the app's current state, the
+// pods behind it, and its history. One read, because a screen that arrives in
+// four pieces flickers through four wrong answers first.
+type AppDetailView struct {
+	Context   string `json:"context"`
+	Namespace string `json:"namespace"`
+	Workload  string `json:"workload"`
+	Kind      string `json:"kind"`
+
+	Health string `json:"health"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	Ready  string `json:"ready,omitempty"`
+
+	// Image and RevisionAt come from the newest reconstructed rollout, which is
+	// the only place the running version is recoverable without a second read.
+	Image      string `json:"image,omitempty"`
+	RevisionAt string `json:"revisionAt,omitempty"`
+
+	Restarts int32        `json:"restarts"`
+	Pods     []PodView    `json:"pods"`
+	Timeline TimelineView `json:"timeline"`
+}
+
+// PodView is one replica.
+type PodView struct {
+	Name     string `json:"name"`
+	Phase    string `json:"phase,omitempty"`
+	Health   string `json:"health"`
+	Ready    bool   `json:"ready"`
+	Restarts int32  `json:"restarts"`
+	AgeSec   int64  `json:"ageSec,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // TimelineView is one app's reconstructed history, plus the honesty metadata:
@@ -143,4 +181,75 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// PodsOf renders an app's pods, worst first: the replica that needs a human
+// should not be somewhere in the middle of six.
+func PodsOf(a apps.App, now time.Time) []PodView {
+	var out []PodView
+	for _, w := range a.Workloads {
+		if w.Kind != "Pod" {
+			continue
+		}
+		v := PodView{Name: w.Name}
+		if w.Status != nil {
+			v.Phase = w.Status.Phase
+			v.Ready = w.Status.Ready
+			v.Restarts = w.Status.RestartCount
+			v.Reason = or(w.Status.WaitingReason, w.Status.TerminatedReason)
+		}
+		if !w.Created.IsZero() {
+			v.AgeSec = int64(now.Sub(w.Created).Seconds())
+		}
+		v.Health = podHealth(w.Status)
+		out = append(out, v)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if rank(out[i].Health) != rank(out[j].Health) {
+			return rank(out[i].Health) < rank(out[j].Health)
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// podHealth keeps the status channel consistent with the app list: shape and
+// colour mean the same thing on every screen.
+func podHealth(st *apps.Status) string {
+	switch {
+	case st == nil:
+		return "unknown"
+	case st.WaitingReason != "" || st.TerminatedReason == "OOMKilled":
+		return "failed"
+	case st.Phase == "Failed":
+		return "failed"
+	case st.Phase == "Pending":
+		return "progressing"
+	case st.Ready:
+		return "healthy"
+	case st.Phase == "Succeeded":
+		return "healthy"
+	}
+	return "degraded"
+}
+
+func rank(health string) int {
+	switch health {
+	case "failed":
+		return 0
+	case "degraded":
+		return 1
+	case "progressing":
+		return 2
+	case "unknown":
+		return 3
+	}
+	return 4
+}
+
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

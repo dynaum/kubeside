@@ -27,6 +27,19 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
 
+func (s stubAPI) AppDetail(contextName, namespace, workload string) (AppDetailView, error) {
+	tl, err := s.Timeline(contextName, namespace, workload)
+	if err != nil {
+		return AppDetailView{}, err
+	}
+	return AppDetailView{
+		Context: contextName, Namespace: namespace, Workload: workload, Kind: "Deployment",
+		Health: "degraded", Ready: "5/6", Image: "checkout:1.2.0", Restarts: 14,
+		Pods:     []PodView{{Name: "checkout-1", Health: "failed", Restarts: 14}},
+		Timeline: tl,
+	}, nil
+}
+
 func (s stubAPI) Timeline(contextName, namespace, workload string) (TimelineView, error) {
 	if workload != "checkout" {
 		return TimelineView{}, errors.New("no workload " + workload)
@@ -374,5 +387,37 @@ func TestTimelineNeedsTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/timeline?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401: the timeline carries cluster data", got)
+	}
+}
+
+func TestAppDetailReturnsStatePodsAndHistory(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/app?context=qa&namespace=team-a&workload=checkout&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got AppDetailView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Ready != "5/6" || len(got.Pods) != 1 {
+		t.Errorf("view = %+v, want state and pods in one read", got)
+	}
+	if len(got.Timeline.Entries) == 0 {
+		t.Error("the detail view arrived without its history")
+	}
+}
+
+func TestAppDetailRequiresEveryCoordinate(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/app?context=qa&"+tokenParam+"="+s.Token(), nil).Code; got != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", got)
+	}
+}
+
+func TestAppDetailNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/app?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
 	}
 }
