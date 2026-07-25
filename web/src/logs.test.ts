@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyBatch, compileFilter, downloadName, level, podColor, renderText, shortPod } from "./logs";
-import type { LogLine } from "./stream";
+import { applyBatch, compileFilter, downloadName, interleave, level, podColor, renderText, shortPod } from "./logs";
+import type { LogEdge, LogLine } from "./stream";
 
 function line(seq: number, pod: string, text: string, time = "2026-07-24T10:00:00Z"): LogLine {
   return { seq, pod, container: "app", text, time };
@@ -136,5 +136,50 @@ describe("renderText", () => {
 describe("downloadName", () => {
   it("names the file after what it contains", () => {
     expect(downloadName("prod", "team-a", "checkout")).toBe("kubeside-prod-team-a-checkout.log");
+  });
+});
+
+describe("interleave", () => {
+  // The server stamps edges in UTC and the kubelet stamps lines in UTC, but
+  // sub-second precision differs between them, so comparison must be by
+  // instant and not by text.
+  it("orders by instant, not by string", () => {
+    const items = interleave(
+      [line(1, "a", "first", "2026-07-24T10:00:00Z"), line(2, "a", "third", "2026-07-24T10:00:01Z")],
+      [{ kind: "ended", pod: "a", time: "2026-07-24T10:00:00.500Z", reason: "stopped" }],
+    );
+    expect(items.map((i) => (i.kind === "line" ? i.line.text : "edge"))).toEqual(["first", "edge", "third"]);
+  });
+
+  const gone: LogEdge = { kind: "gone", pod: "b", time: "2026-07-24T10:00:02Z", reason: "pod left" };
+  const horizon: LogEdge = { kind: "horizon", pod: "a", reason: "rotation" };
+
+  // An edge dumped at the bottom says nothing. The boundary belongs where it
+  // happened, between the lines it separates.
+  it("places an edge at its moment in the stream", () => {
+    const items = interleave(
+      [line(1, "a", "before", "2026-07-24T10:00:01Z"), line(2, "a", "after", "2026-07-24T10:00:03Z")],
+      [gone],
+    );
+    expect(items.map((i) => (i.kind === "line" ? i.line.text : i.edge.kind))).toEqual([
+      "before", "gone", "after",
+    ]);
+  });
+
+  it("pins the horizon to the top, since it describes everything before", () => {
+    const items = interleave([line(1, "a", "first", "2026-07-24T10:00:01Z")], [horizon]);
+    expect(items[0]).toEqual({ kind: "edge", edge: horizon });
+  });
+
+  // Six replicas that all started before the window would otherwise print the
+  // same sentence six times.
+  it("shows one horizon rule however many replicas report one", () => {
+    const items = interleave([], [horizon, { ...horizon, pod: "b" }, { ...horizon, pod: "c" }]);
+    expect(items).toHaveLength(1);
+  });
+
+  it("keeps the stream readable when there are no edges at all", () => {
+    const items = interleave([line(1, "a", "only")], []);
+    expect(items).toEqual([{ kind: "line", line: line(1, "a", "only") }]);
   });
 });

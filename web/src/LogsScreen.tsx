@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContextView } from "./api";
 import { envToken } from "./health";
 import { useLogs, type LogEdge, type LogLine } from "./stream";
-import { bufferText, compileFilter, downloadName, level, podColor, renderText, shortPod } from "./logs";
+import { bufferText, compileFilter, downloadName, interleave, level, podColor, renderText, shortPod } from "./logs";
 
 // Screen 4. The whole workload, every replica merged and time-ordered, with a
 // colour key per pod. Per-pod and per-container are filters on that stream, not
@@ -159,53 +159,51 @@ function Body({
     );
   }
 
+  const items = interleave(lines, edges);
+  const first = lines.find((l) => l.time)?.time;
+
   return (
     <div className="log" ref={box} style={{ flex: 1, overflow: "auto", paddingBottom: "var(--s5)" }}>
-      <Edges edges={edges} kinds={["horizon", "restart"]} />
-
-      {lines.length === 0 && (
+      {lines.length === 0 && edges.length === 0 && (
         <div style={{ color: "var(--fg-3)", padding: "var(--s4) 0" }}>
           <span className="spinner" /> waiting for output. A workload can be healthy and quiet.
         </div>
       )}
 
-      {lines.map((l) => (
-        <div className="log-row" key={l.seq}>
-          <span className="ts">{clock(l.time)}</span>
-          <span className="pod" style={{ color: podColor(l.pod, pods) }} title={l.pod}>
-            {shortPod(l.pod)}
-          </span>
-          <span className={`msg ${lvl(l.text)}`}>
-            {renderText(l.text, filter).map((p, i) =>
-              p.hit ? <span className="hit" key={i}>{p.text}</span> : <span key={i}>{p.text}</span>,
-            )}
-            {l.truncated && <span className="tag" style={{ marginLeft: 6 }}>truncated</span>}
-            {/* The line is in its right place; the tag says it reached us after
-                its moment, which is a fact about the stream, not the order. */}
-            {l.late && <span className="tag" style={{ marginLeft: 6 }}>delayed</span>}
-          </span>
-        </div>
-      ))}
-
-      <Edges edges={edges} kinds={["gone", "ended", "error"]} />
+      {items.map((it, i) =>
+        it.kind === "edge" ? (
+          <Gap key={`e${i}`} edge={it.edge} before={it.edge.kind === "horizon" ? first : undefined} />
+        ) : (
+          <div className="log-row" key={it.line.seq}>
+            <span className="ts">{clock(it.line.time)}</span>
+            <span className="pod" style={{ color: podColor(it.line.pod, pods) }} title={it.line.pod}>
+              {shortPod(it.line.pod)}
+            </span>
+            <span className={`msg ${lvl(it.line.text)}`}>
+              {renderText(it.line.text, filter).map((p, j) =>
+                p.hit ? <span className="hit" key={j}>{p.text}</span> : <span key={j}>{p.text}</span>,
+              )}
+              {it.line.truncated && <span className="tag" style={{ marginLeft: 6 }}>truncated</span>}
+              {/* The line is in its right place; the tag says it reached us
+                  after its moment, a fact about the stream, not the order. */}
+              {it.line.late && <span className="tag" style={{ marginLeft: 6 }}>delayed</span>}
+            </span>
+          </div>
+        ),
+      )}
     </div>
   );
 }
 
-// Availability edges are rendered as rules with a reason. An unexplained gap
-// reads as a quiet period, and a crash loop is not a quiet period.
-function Edges({ edges, kinds }: { edges: LogEdge[]; kinds: string[] }) {
-  const shown = edges.filter((e) => kinds.includes(e.kind));
-  if (shown.length === 0) return null;
+// An availability edge is a rule with a reason, placed where it happened.
+// Blank space would read as a quiet period, and a crash loop is not quiet.
+function Gap({ edge, before }: { edge: LogEdge; before?: string }) {
   return (
-    <>
-      {shown.map((e, i) => (
-        <div className="log-gap" key={`${e.kind}-${e.pod}-${i}`}>
-          {e.pod ? `${shortPod(e.pod)} · ` : ""}
-          {e.reason}
-        </div>
-      ))}
-    </>
+    <div className="log-gap" title={edge.pod}>
+      {edge.pod && edge.kind !== "horizon" ? `${shortPod(edge.pod)} · ` : ""}
+      {before ? `before ${clock(before)} · ` : ""}
+      {edge.reason}
+    </div>
   );
 }
 

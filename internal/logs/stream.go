@@ -90,6 +90,10 @@ type Options struct {
 	Since *time.Time
 	// Refresh is how often the target list is re-read.
 	Refresh time.Duration
+	// Reopen is how long to wait before reconnecting a stream that ended. A
+	// container that restarts ends its stream; treating that as the end of the
+	// story would render a crash loop as a quiet period.
+	Reopen time.Duration
 
 	OnLine func(Line)
 	OnEdge func(Edge)
@@ -98,6 +102,11 @@ type Options struct {
 // DefaultRefresh is how often the pod set is re-read, so a rollout's replicas
 // join within a few seconds without watching every pod in the cluster.
 const DefaultRefresh = 3 * time.Second
+
+// DefaultReopen is how long a stream waits before reconnecting after its
+// container stopped writing. Long enough not to spin against a container that
+// is genuinely finished, short enough that a restart is not a visible gap.
+const DefaultReopen = 2 * time.Second
 
 // Streamer merges every replica of one workload into one buffer.
 type Streamer struct {
@@ -111,9 +120,10 @@ type Streamer struct {
 	// stream is still open for it. A container that finished still belongs to
 	// the workload; only leaving the pod set means its logs are gone.
 	known map[string]bool
-	// done marks streams that ended on their own. A finished container has
-	// nothing more to say, and reopening it would replay its output forever.
-	done  map[string]bool
+	// seen is the newest timestamp read per target. The kubelet has no cursor,
+	// so reopening a stream after a restart would replay its tail; this is how
+	// the streamer skips what it already has.
+	seen  map[string]time.Time
 	edges []Edge
 	// horizonSeen keeps the availability marker to one per container, rather
 	// than one per reconnect.
@@ -125,13 +135,16 @@ func NewStreamer(src Source, opts Options) *Streamer {
 	if opts.Refresh <= 0 {
 		opts.Refresh = DefaultRefresh
 	}
+	if opts.Reopen <= 0 {
+		opts.Reopen = DefaultReopen
+	}
 	return &Streamer{
 		src:         src,
 		opts:        opts,
 		buf:         NewBuffer(opts.Buffer),
 		active:      map[string]context.CancelFunc{},
 		known:       map[string]bool{},
-		done:        map[string]bool{},
+		seen:        map[string]time.Time{},
 		horizonSeen: map[string]bool{},
 	}
 }
@@ -191,7 +204,7 @@ func (s *Streamer) reconcile(ctx context.Context) {
 	}
 	var start []Target
 	for k, t := range wanted {
-		if s.active[k] == nil && !s.done[k] {
+		if s.active[k] == nil {
 			start = append(start, t)
 		}
 	}
@@ -203,7 +216,7 @@ func (s *Streamer) reconcile(ctx context.Context) {
 		pod, container := splitKey(k)
 		s.edge(Edge{
 			Kind: EdgeGone, Pod: pod, Container: container, Time: time.Now(),
-			Reason: "pod left the workload; the kubelet no longer serves its logs",
+			Reason: "this pod left the workload; its logs are gone with it, not quiet",
 		})
 	}
 	for _, t := range start {
@@ -232,7 +245,7 @@ func (s *Streamer) open(ctx context.Context, t Target) {
 	sctx, cancel := context.WithCancel(ctx)
 
 	s.mu.Lock()
-	if s.active[t.key()] != nil || s.done[t.key()] {
+	if s.active[t.key()] != nil {
 		s.mu.Unlock()
 		cancel()
 		return
@@ -243,47 +256,104 @@ func (s *Streamer) open(ctx context.Context, t Target) {
 	go s.read(sctx, t)
 }
 
+// read follows one container until its context is cancelled.
+//
+// A stream that ends is not the end of the container: a restart ends the stream
+// too, and the new instance writes to a new one. So the reader reconnects,
+// resuming after the newest line it already has, and says on the record that
+// the container restarted rather than leaving a silent gap.
 func (s *Streamer) read(ctx context.Context, t Target) {
 	defer s.release(t.key())
+
+	for ctx.Err() == nil {
+		reopen := s.readOnce(ctx, t)
+		if !reopen {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.opts.Reopen):
+		}
+	}
+}
+
+// readOnce reads one connection and reports whether to reconnect.
+func (s *Streamer) readOnce(ctx context.Context, t Target) bool {
+	since := s.opts.Since
+	if last, ok := s.lastSeen(t.key()); ok {
+		// Resume from what we already have. The kubelet's granularity is a
+		// whole second, so lines are also filtered by timestamp below.
+		since = &last
+	}
 
 	rc, err := s.src.Open(ctx, t, OpenOptions{
 		Follow:    true,
 		Previous:  t.Previous || s.opts.Previous,
 		TailLines: s.opts.Tail,
-		SinceTime: s.opts.Since,
+		SinceTime: since,
 	})
 	if err != nil {
 		// One unreadable replica must not take the others with it. The reason
-		// is recorded and the stream is retried on the next refresh, because a
-		// container that is still starting becomes readable shortly.
+		// is recorded and the stream retried, because a container that is
+		// still starting becomes readable shortly.
 		s.edge(Edge{Kind: EdgeError, Pod: t.Pod, Container: t.Container, Time: time.Now(), Reason: err.Error()})
-		return
+		return true
 	}
 	defer rc.Close()
 
 	s.markHorizon(t)
 
+	fresh := 0
 	err = Scan(rc, Meta{Pod: t.Pod, Container: t.Container, Previous: t.Previous || s.opts.Previous}, func(l Line) {
+		// Resuming by timestamp is approximate on the kubelet's side, so
+		// anything at or before the last line we hold is dropped here. Better a
+		// missing duplicate than the same crash printed twice.
+		if last, ok := s.lastSeen(t.key()); ok && !l.Time.IsZero() && !l.Time.After(last) {
+			return
+		}
+		if !l.Time.IsZero() {
+			s.observe(t.key(), l.Time)
+		}
+		fresh++
 		stored := s.buf.Add(l)
 		if s.opts.OnLine != nil {
 			s.opts.OnLine(stored)
 		}
 	})
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	if err != nil {
 		s.edge(Edge{Kind: EdgeError, Pod: t.Pod, Container: t.Container, Time: time.Now(), Reason: err.Error()})
-		return
+		return true
 	}
 
-	// A clean end means the container stopped. Marking it done keeps the
-	// refresh loop from reopening a stream with nothing left to give.
-	s.finish(t.key())
-	s.edge(Edge{
-		Kind: EdgeEnded, Pod: t.Pod, Container: t.Container, Time: time.Now(),
-		Reason: "the container stopped writing; this is the end of its output, not a gap",
-	})
+	// The stream ended. Either the container stopped for good or it restarted,
+	// and only the next connection can tell us which. Both cases reconnect;
+	// the difference shows up as whether new output arrives.
+	if fresh > 0 {
+		s.edge(Edge{
+			Kind: EdgeEnded, Pod: t.Pod, Container: t.Container, Time: time.Now(),
+			Reason: "the container stopped writing here; if it restarts, its new output continues below",
+		})
+	}
+	return true
+}
+
+func (s *Streamer) lastSeen(key string) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.seen[key]
+	return t, ok
+}
+
+func (s *Streamer) observe(key string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if at.After(s.seen[key]) {
+		s.seen[key] = at
+	}
 }
 
 // markHorizon records where a stream starts and, for previous-instance reads,
@@ -299,7 +369,7 @@ func (s *Streamer) markHorizon(t Target) {
 
 	s.edge(Edge{
 		Kind: EdgeHorizon, Pod: t.Pod, Container: t.Container, Time: time.Now(),
-		Reason: "logs begin here: the kubelet serves only what container rotation retained",
+		Reason: "logs before this point are no longer available: the kubelet serves only what container rotation retained, 10 MiB per container by default",
 	})
 	if t.Previous || s.opts.Previous {
 		s.edge(Edge{
@@ -327,20 +397,14 @@ func (s *Streamer) release(key string) {
 	delete(s.active, key)
 }
 
-func (s *Streamer) finish(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.done[key] = true
-}
-
 func (s *Streamer) stop(key string) {
 	s.mu.Lock()
 	cancel := s.active[key]
 	delete(s.active, key)
 	delete(s.known, key)
 	// A pod that left may come back under the same name after a rollout, so
-	// its finished marker goes with it.
-	delete(s.done, key)
+	// everything remembered about it goes too.
+	delete(s.seen, key)
 	delete(s.horizonSeen, key)
 	s.mu.Unlock()
 	if cancel != nil {

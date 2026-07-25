@@ -4,7 +4,7 @@
 // The server holds the authoritative 10k-line ring. This keeps a shorter one so
 // a tab left open on a chatty workload cannot grow the DOM without bound.
 
-import type { LogLine, LogsBatch } from "./stream";
+import type { LogEdge, LogLine, LogsBatch } from "./stream";
 
 /** CLIENT_LINES is the on-screen ring. Deep enough to scroll, short enough to render. */
 export const CLIENT_LINES = 5000;
@@ -23,11 +23,17 @@ export function applyBatch(current: LogLine[], batch: LogsBatch, cap = CLIENT_LI
   const fresh = incoming.filter((l) => !seen.has(l.seq));
   // Time is the merge key, sequence only the tiebreaker. A line the server had
   // to insert behind others still lands where it belongs on screen.
-  const next = [...base, ...fresh].sort(
-    (a, b) => (a.time ?? "").localeCompare(b.time ?? "") || a.seq - b.seq,
-  );
+  const next = [...base, ...fresh].sort((a, b) => at(a.time) - at(b.time) || a.seq - b.seq);
 
   return next.length > cap ? next.slice(next.length - cap) : next;
+}
+
+// at parses a wire timestamp to milliseconds. Comparing the strings would be
+// wrong twice over: zones differ, and RFC3339 trims trailing zeros from the
+// fraction, so "10:00:00.5Z" sorts before "10:00:00Z" as text.
+function at(time?: string): number {
+  const v = time ? Date.parse(time) : NaN;
+  return Number.isNaN(v) ? 0 : v;
 }
 
 export interface Filter {
@@ -111,4 +117,31 @@ export function downloadName(context: string, namespace: string, workload: strin
 // a saved file still says which replica said what.
 export function bufferText(lines: LogLine[]): string {
   return lines.map((l) => `${l.time ?? ""} ${l.pod} ${l.container} ${l.text}`).join("\n") + "\n";
+}
+
+/** An item in the rendered stream: a log line, or an edge in what is knowable. */
+export type Item =
+  | { kind: "line"; line: LogLine }
+  | { kind: "edge"; edge: LogEdge };
+
+// interleave places availability edges among the lines by time.
+//
+// An edge floated to the bottom of a scrollback says nothing useful: what a
+// developer needs is the boundary at the point in the stream where it happened.
+// The horizon is the exception and pins to the top, because it describes
+// everything before the first line rather than a moment inside the stream.
+export function interleave(lines: LogLine[], edges: LogEdge[]): Item[] {
+  const horizon = edges.filter((e) => e.kind === "horizon" || !e.time);
+  const placed = edges.filter((e) => e.kind !== "horizon" && e.time);
+
+  const items: { at: number; item: Item }[] = [
+    ...lines.map((l) => ({ at: at(l.time), item: { kind: "line", line: l } as Item })),
+    ...placed.map((e) => ({ at: at(e.time), item: { kind: "edge", edge: e } as Item })),
+  ];
+  items.sort((a, b) => a.at - b.at);
+
+  // One horizon rule, not one per replica: six pods that all started before the
+  // window would otherwise print the same sentence six times.
+  const head: Item[] = horizon.length > 0 ? [{ kind: "edge", edge: horizon[0] }] : [];
+  return [...head, ...items.map((i) => i.item)];
 }

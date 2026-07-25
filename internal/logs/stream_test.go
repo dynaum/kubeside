@@ -309,22 +309,46 @@ func TestStreamerPreviousContainerIsMarked(t *testing.T) {
 	}
 }
 
-// A container that finished has nothing more to say. Reopening it every
-// refresh would hammer the apiserver and replay the same lines forever.
-func TestStreamerDoesNotReopenAFinishedStream(t *testing.T) {
+// A container that restarts ends its log stream. If kubeside treated that as
+// the end of the story, a crash loop would render as a quiet period, which is
+// the exact failure this screen exists to prevent.
+func TestStreamerReopensAfterAContainerRestarts(t *testing.T) {
 	f := newFake()
 	f.set([]Target{{Pod: "checkout-1", Container: "app"}}, map[string]string{
-		"checkout-1/app": "2026-07-24T10:00:00Z done\n",
+		"checkout-1/app": "2026-07-24T10:00:00Z before the crash\n",
 	})
 
-	s := run(t, f, Options{})
-	waitFor(t, "the line", func() bool { lines, _ := s.Buffer().Snapshot(); return len(lines) == 1 })
+	s := run(t, f, Options{Reopen: 5 * time.Millisecond})
+	waitFor(t, "the first line", func() bool { lines, _ := s.Buffer().Snapshot(); return len(lines) == 1 })
+
+	// The container comes back with new output.
+	f.set(nil, map[string]string{
+		"checkout-1/app": "2026-07-24T10:00:00Z before the crash\n2026-07-24T10:05:00Z after the restart\n",
+	})
+
+	waitFor(t, "output from the new instance", func() bool {
+		lines, _ := s.Buffer().Snapshot()
+		return len(lines) == 2 && lines[1].Text == "after the restart"
+	})
+}
+
+// Reopening must not replay what is already on screen. The kubelet has no
+// cursor, so the streamer keeps its own.
+func TestStreamerDoesNotReplayLinesOnReopen(t *testing.T) {
+	f := newFake()
+	f.set([]Target{{Pod: "checkout-1", Container: "app"}}, map[string]string{
+		"checkout-1/app": "2026-07-24T10:00:00Z one\n2026-07-24T10:00:01Z two\n",
+	})
+
+	s := run(t, f, Options{Reopen: 5 * time.Millisecond})
+	waitFor(t, "both lines", func() bool { lines, _ := s.Buffer().Snapshot(); return len(lines) == 2 })
 	time.Sleep(60 * time.Millisecond)
 
-	if n := f.openCount("checkout-1/app"); n != 1 {
-		t.Fatalf("opened %d times; a finished stream must not be reopened", n)
+	if n := f.openCount("checkout-1/app"); n < 2 {
+		t.Fatalf("opened %d times; the stream is not being reopened at all", n)
 	}
-	if lines, _ := s.Buffer().Snapshot(); len(lines) != 1 {
+	lines, _ := s.Buffer().Snapshot()
+	if len(lines) != 2 {
 		t.Fatalf("lines = %v; the same output was replayed", texts(lines))
 	}
 }

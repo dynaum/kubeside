@@ -134,7 +134,7 @@ func logLine(l logs.Line) LogLine {
 		Previous: l.Previous, Truncated: l.Truncated, Late: l.Late,
 	}
 	if !l.Time.IsZero() {
-		out.Time = l.Time.Format(time.RFC3339Nano)
+		out.Time = l.Time.UTC().Format(time.RFC3339Nano)
 	}
 	return out
 }
@@ -142,7 +142,10 @@ func logLine(l logs.Line) LogLine {
 func logEdge(e logs.Edge) LogEdge {
 	out := LogEdge{Kind: e.Kind, Pod: e.Pod, Container: e.Container, Reason: e.Reason}
 	if !e.Time.IsZero() {
-		out.Time = e.Time.Format(time.RFC3339Nano)
+		// UTC, like every line: an edge stamped in the server's local zone
+		// would sort into the wrong place among output the kubelet stamps in
+		// UTC.
+		out.Time = e.Time.UTC().Format(time.RFC3339Nano)
 	}
 	return out
 }

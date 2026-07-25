@@ -234,10 +234,16 @@ which is how a rollout's new replicas join a stream already on screen. A label
 selector would be a second answer that disagrees with the engine on exactly the
 workloads where grouping was hard.
 
-Availability edges travel with the lines: where a stream begins, that
-previous-container output reaches exactly one restart back, that a pod left the
-workload, and that a container stopped rather than went quiet. A gap the tool
-cannot explain is a gap the developer will misread as silence.
+Availability edges travel with the lines and render where they happened: where
+a stream begins, that previous-container output reaches exactly one restart
+back, that a pod left the workload, and that a container stopped rather than
+went quiet. A gap the tool cannot explain is a gap the developer will misread as
+silence.
+
+A restart ends a container's log stream, so the reader reconnects and resumes
+after the newest line it holds, marking the boundary. Treating the end of a
+stream as the end of the story would render a crash loop, the case this screen
+exists for, as a quiet period.
 
 ### Kubeconfig
 
