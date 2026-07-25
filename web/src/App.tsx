@@ -6,6 +6,7 @@ import { LogsScreen } from "./LogsScreen";
 import { AppDetailScreen } from "./AppDetailScreen";
 import { ConfigScreen } from "./ConfigScreen";
 import { DiffScreen } from "./DiffScreen";
+import { PromotionScreen } from "./PromotionScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 import { Palette } from "./Palette";
@@ -44,6 +45,7 @@ export function App() {
         // The current context leads; select it so the developer's usual
         // workspace renders first, unless a permalink named another.
         setRoute((r) => {
+          if (r.screen === "promotion") return r;
           if (r.context && cs.some((c) => c.name === r.context)) return r;
           const cur = cs.find((c) => c.current) ?? cs[0];
           return cur ? { screen: "apps", context: cur.name } : r;
@@ -86,7 +88,9 @@ export function App() {
     );
   }
 
-  const current = contexts.find((c) => c.name === route.context) ?? null;
+  const current = route.screen === "promotion"
+    ? null
+    : (contexts.find((c) => c.name === route.context) ?? null);
 
   return (
     <div className="shell" data-env={current ? envToken(current) : "unc"} style={{ position: "relative" }}>
@@ -102,9 +106,18 @@ export function App() {
         contexts={contexts}
         selected={current?.name ?? null}
         onSelect={(name) => go({ screen: "apps", context: name })}
+        onPromotion={() => go({ screen: "promotion" })}
+        promotionSelected={route.screen === "promotion"}
       />
       <div className="main">
-        {!current && <NoSelection />}
+        {route.screen === "promotion" && (
+          <PromotionScreen
+            onOpenApp={(context, namespace, workload) =>
+              context && go({ screen: "app", context, namespace, workload })
+            }
+          />
+        )}
+        {route.screen !== "promotion" && !current && <NoSelection />}
         {current && route.screen === "apps" && (
           <AppsScreen
             context={current}

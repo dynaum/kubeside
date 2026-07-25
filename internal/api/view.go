@@ -6,6 +6,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
@@ -154,6 +155,16 @@ type ForwardRequest struct {
 	Pod        string `json:"pod,omitempty"`
 	RemotePort int    `json:"remotePort"`
 	LocalPort  int    `json:"localPort,omitempty"`
+}
+
+// PromotionView is the matrix: one row per app, one column per environment.
+type PromotionView struct {
+	Envs    []promotion.Env   `json:"envs"`
+	Rows    []promotion.Row   `json:"rows"`
+	Summary promotion.Summary `json:"summary"`
+	// Unreachable names the environments that could not be read at all, so an
+	// empty column reads as "not connected" rather than as "nothing deployed".
+	Unreachable []string `json:"unreachable,omitempty"`
 }
 
 // TimelineView is one app's reconstructed history, plus the honesty metadata:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
+	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
@@ -811,3 +813,126 @@ func (s *Service) StopForward(id string) error { return s.forwards.Stop(id) }
 // Close releases everything the service holds. No tunnel outlives the process
 // that opened it.
 func (s *Service) Close() { s.forwards.StopAll() }
+
+// Promotion compares every app across every environment.
+//
+// Opening this view is what connects the environments: the matrix cannot answer
+// "is the fix in prod yet" without reading prod. An environment that will not
+// connect becomes a column of unreadable cells naming the reason, never an
+// empty column that reads as "nothing is deployed there".
+func (s *Service) Promotion() PromotionView {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	var envs []promotion.Env
+	var instances []promotion.Instance
+	var unreachable []string
+	seen := map[string]bool{}
+
+	for _, name := range s.mgr.ConnectOrder() {
+		kctx := s.cfg.MustGet(name)
+		env := s.conf.Environment(kctx)
+		// Two contexts bound to one environment would produce two identical
+		// columns; the first one wins, which is what the binding is for.
+		if seen[env.Name] {
+			continue
+		}
+		seen[env.Name] = true
+		envs = append(envs, promotion.Env{Name: env.Name, Risk: env.Risk.String(), Context: name})
+
+		reason := ""
+		if err := s.mgr.Connect(ctx, name); err != nil {
+			reason = err.Error()
+		}
+		client, ok := s.mgr.ClientFor(name)
+		if !ok {
+			unreachable = append(unreachable, env.Name)
+			instances = append(instances, promotion.Instance{
+				Env: env.Name, App: "", Denied: true,
+				DeniedReason: orElseString(reason, "not connected"),
+			})
+			continue
+		}
+
+		snap, err := clusters.Fetch(ctx, client, kctx)
+		if err != nil {
+			unreachable = append(unreachable, env.Name)
+			continue
+		}
+		for _, a := range snap.Apps {
+			instances = append(instances, instanceOf(env.Name, a))
+		}
+	}
+
+	// Instances with no app name are placeholders for an environment nobody
+	// could read; they gave us the column and nothing else.
+	real := instances[:0]
+	for _, in := range instances {
+		if in.App != "" {
+			real = append(real, in)
+		}
+	}
+
+	rows := promotion.Build(envs, real)
+	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows), Unreachable: unreachable}
+}
+
+// instanceOf reads one app's version from the snapshot.
+//
+// The tag comes from the workload's own image and is available immediately. The
+// digest lives in pod status and is filled from the pods already in the
+// snapshot; when there are none, the cell says the digest is pending rather
+// than claiming the images match.
+func instanceOf(env string, a apps.App) promotion.Instance {
+	in := promotion.Instance{
+		Env: env, App: a.Key.Name, Namespace: a.Key.Namespace, Present: true,
+		Ready: readyRatio(a),
+	}
+	in.Health = apps.Assess(a).Health.String()
+
+	for _, w := range a.Workloads {
+		if w.Status == nil {
+			continue
+		}
+		if w.Kind == a.Kind && w.Status.Image != "" && in.Image == "" {
+			in.Image = w.Status.Image
+		}
+		if w.Kind == "Pod" {
+			if in.Image == "" && w.Status.Image != "" {
+				in.Image = w.Status.Image
+			}
+			if in.Digest == "" {
+				in.Digest = digestOf(w.Status.ImageID)
+			}
+		}
+		if !w.Created.IsZero() && (in.RevisionAt == "" || w.Created.After(mustTime(in.RevisionAt))) {
+			in.RevisionAt = w.Created.UTC().Format(time.RFC3339)
+		}
+	}
+	in.Tag = promotion.TagOf(in.Image)
+	return in
+}
+
+// digestOf keeps the sha from an imageID, which is the part that identifies the
+// code. The registry prefix in front of it varies by node and says nothing.
+func digestOf(imageID string) string {
+	if at := strings.LastIndex(imageID, "@"); at >= 0 {
+		return imageID[at+1:]
+	}
+	if at := strings.Index(imageID, "sha256:"); at >= 0 {
+		return imageID[at:]
+	}
+	return ""
+}
+
+func mustTime(v string) time.Time {
+	t, _ := time.Parse(time.RFC3339, v)
+	return t
+}
+
+func orElseString(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
+}

@@ -3,6 +3,7 @@
 
 export type Route =
   | { screen: "apps"; context?: string }
+  | { screen: "promotion" }
   | { screen: "app"; context: string; namespace: string; workload: string }
   | { screen: "config"; context: string; namespace: string; workload: string }
   | { screen: "diff"; context: string; namespace: string; workload: string; other?: string }
@@ -10,6 +11,7 @@ export type Route =
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === "promotion") return { screen: "promotion" };
   if (parts[0] === "diff" && parts.length >= 4) {
     return { screen: "diff", context: parts[1], namespace: parts[2], workload: parts[3], other: parts[4] };
   }
@@ -34,5 +36,6 @@ export function routeHash(r: Route): string {
   if (r.screen === "logs" || r.screen === "app" || r.screen === "config") {
     return `#${r.screen}/${enc(r.context)}/${enc(r.namespace)}/${enc(r.workload)}`;
   }
+  if (r.screen === "promotion") return "#promotion";
   return r.context ? `#apps/${enc(r.context)}` : "#apps";
 }

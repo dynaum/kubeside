@@ -72,6 +72,8 @@ type API interface {
 	StartForward(req ForwardRequest) (forward.Forward, error)
 	Forwards() []forward.Forward
 	StopForward(id string) error
+	// Promotion compares every app across every environment.
+	Promotion() PromotionView
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -105,6 +107,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/secret", s.handleReveal)
 	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/forwards", s.handleForwards)
+	mux.HandleFunc("/api/promotion", s.handlePromotion)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +312,11 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 //
 // Opening and closing are POSTs because they change what is listening on the
 // developer's machine, which is not something a link should be able to do.
+// handlePromotion answers "is the fix in prod yet".
+func (s *Server) handlePromotion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.api.Promotion())
+}
+
 func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

@@ -167,6 +167,7 @@ func listNamespace(ctx context.Context, c kubernetes.Interface, ns string) ([]ap
 				Generation:         d.Generation,
 				ObservedGeneration: d.Status.ObservedGeneration,
 				Conditions:         deploymentConditions(d),
+				Image:              primaryImage(d.Spec.Template.Spec.Containers),
 			}
 			out = append(out, o)
 		}
@@ -185,6 +186,7 @@ func listNamespace(ctx context.Context, c kubernetes.Interface, ns string) ([]ap
 				AvailableReplicas:  s.Status.AvailableReplicas,
 				Generation:         s.Generation,
 				ObservedGeneration: s.Status.ObservedGeneration,
+				Image:              primaryImage(s.Spec.Template.Spec.Containers),
 			}
 			out = append(out, o)
 		}
@@ -202,6 +204,7 @@ func listNamespace(ctx context.Context, c kubernetes.Interface, ns string) ([]ap
 				ReadyReplicas:      d.Status.NumberReady,
 				UpdatedReplicas:    d.Status.UpdatedNumberScheduled,
 				AvailableReplicas:  d.Status.NumberAvailable,
+				Image:              primaryImage(d.Spec.Template.Spec.Containers),
 				Generation:         d.Generation,
 				ObservedGeneration: d.Status.ObservedGeneration,
 			}
@@ -293,7 +296,17 @@ func deploymentConditions(d *appsv1.Deployment) []apps.Condition {
 // podStatus flattens the container statuses a developer would look at first:
 // why a container is waiting, why it last died, and how often it has restarted.
 func podStatus(p *corev1.Pod) *apps.Status {
-	st := &apps.Status{Phase: string(p.Status.Phase)}
+	st := &apps.Status{
+		Phase: string(p.Status.Phase),
+		Image: primaryImage(p.Spec.Containers),
+	}
+	// The digest lives here and nowhere else: a tag says what was asked for,
+	// imageID says what is running.
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Image == st.Image || st.ImageID == "" {
+			st.ImageID = cs.ImageID
+		}
+	}
 
 	for _, c := range p.Status.Conditions {
 		if c.Type == corev1.PodReady {
@@ -348,6 +361,15 @@ func fromMeta(kind string, m *metav1.ObjectMeta) apps.Object {
 		})
 	}
 	return o
+}
+
+// primaryImage is the first container's image, which is the application
+// container in every layout kubeside models. Sidecars follow it.
+func primaryImage(cs []corev1.Container) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	return cs[0].Image
 }
 
 func dedupe(in []string) []string {

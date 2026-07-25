@@ -12,6 +12,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
+	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
@@ -28,6 +29,15 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) Promotion() PromotionView {
+	envs := []promotion.Env{{Name: "qa"}, {Name: "prod"}}
+	rows := promotion.Build(envs, []promotion.Instance{
+		{Env: "qa", App: "checkout", Namespace: "team-a", Present: true, Tag: "v2"},
+		{Env: "prod", App: "checkout", Namespace: "team-a", Present: true, Tag: "v1"},
+	})
+	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows)}
+}
 
 func (s stubAPI) StartForward(req ForwardRequest) (forward.Forward, error) {
 	if req.RemotePort == 0 {
@@ -687,6 +697,31 @@ func TestStoppingAnUnknownForwardIs404(t *testing.T) {
 func TestForwardsNeedTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/forwards", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func TestPromotionReturnsTheMatrix(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/promotion?"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var got PromotionView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Envs) != 2 || len(got.Rows) != 1 {
+		t.Fatalf("view = %+v", got)
+	}
+	if got.Summary.Drifted != 1 {
+		t.Errorf("summary = %+v, want the drifted app counted", got.Summary)
+	}
+}
+
+func TestPromotionNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/promotion", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
+	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/resolved"
 )
 
@@ -50,6 +51,15 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) Promotion() PromotionView {
+	envs := []promotion.Env{{Name: "qa"}, {Name: "prod"}}
+	rows := promotion.Build(envs, []promotion.Instance{
+		{Env: "qa", App: "checkout", Namespace: "team-a", Present: true, Tag: "v2"},
+		{Env: "prod", App: "checkout", Namespace: "team-a", Present: true, Tag: "v1"},
+	})
+	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows)}
 }
 
 func (s *streamStub) StartForward(req ForwardRequest) (forward.Forward, error) {

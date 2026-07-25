@@ -37,6 +37,13 @@ type Status struct {
 	ObservedGeneration int64
 	Conditions         []Condition
 
+	// Image is the primary container's image as written in the spec, which is
+	// where the tag lives. ImageID is what the tag resolved to on this node,
+	// which is where the digest lives: the two disagree when a mutable tag has
+	// been repushed, and that disagreement is the point of the promotion view.
+	Image   string
+	ImageID string
+
 	// Pod-level.
 	Phase            string // Running, Pending, Succeeded, Failed
 	Ready            bool

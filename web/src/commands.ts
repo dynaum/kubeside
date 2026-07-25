@@ -91,6 +91,15 @@ export function commands(
     );
   }
 
+  // The promotion view is not about one environment, so it is always offered.
+  out.push({
+    id: "view:promotion",
+    group: "Views",
+    label: "Promotion matrix",
+    hint: "is the fix in prod yet",
+    route: { screen: "promotion" },
+  });
+
   for (const c of contexts) {
     if (c.name === current?.name) continue;
     out.push({
@@ -107,7 +116,7 @@ export function commands(
 
 // routeTarget is the app the current screen is about, when it is about one.
 function routeTarget(route: Route): { namespace: string; workload: string } | null {
-  if (route.screen === "apps") return null;
+  if (route.screen === "apps" || route.screen === "promotion") return null;
   return { namespace: route.namespace, workload: route.workload };
 }
 

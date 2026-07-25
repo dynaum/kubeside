@@ -198,3 +198,18 @@ body {
 .palette-row.sel { background: var(--raised); color: var(--fg); border-left-color: var(--fg); }
 .palette-row .path { font-family: var(--font-mono); }
 .palette-row .hint { margin-left: auto; color: var(--fg-4); font-size: 11px; }
+
+/* Promotion matrix, ported from the design system. */
+.matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.matrix th { font-family: var(--font-cond); font-size: 10px; font-weight: 600; letter-spacing: .11em; text-transform: uppercase; text-align: left; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); color: var(--fg-4); }
+.matrix th.env-col { color: var(--env); border-bottom: 2px solid var(--env); }
+.matrix td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.matrix td.app { font-family: var(--font-mono); color: var(--fg); }
+.matrix td.cell { border-left: 1px solid var(--line-soft); }
+.matrix tr:hover td { background: var(--raised); }
+.cell-tag { font-family: var(--font-mono); color: var(--fg); display: block; }
+.cell-meta { display: flex; align-items: center; gap: var(--s2); margin-top: 3px; color: var(--fg-4); font-size: 11px; }
+.cell-none { color: var(--fg-4); }
+.cell-denied { color: var(--unknown); font-family: var(--font-cond); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.drift-flag { font-family: var(--font-cond); font-size: 9px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--warn); }
+.drift-flag.ahead { color: var(--err); }

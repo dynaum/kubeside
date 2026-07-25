@@ -7,10 +7,14 @@ export function Rail({
   contexts,
   selected,
   onSelect,
+  onPromotion,
+  promotionSelected,
 }: {
   contexts: ContextView[];
   selected: string | null;
   onSelect: (name: string) => void;
+  onPromotion: () => void;
+  promotionSelected: boolean;
 }) {
   return (
     <aside className="rail">
@@ -31,6 +35,15 @@ export function Rail({
           <ConnState c={c} />
         </button>
       ))}
+      <div className="rail-sect">Views</div>
+      <button
+        className={`rail-item${promotionSelected ? " sel" : ""}`}
+        onClick={onPromotion}
+        title="is the fix in prod yet"
+      >
+        <span>Promotion</span>
+      </button>
+
       <div style={{ marginTop: "auto", padding: "var(--s4)", borderTop: "1px solid var(--line)" }}>
         <div className="mono" style={{ fontSize: 10, color: "var(--fg-4)", lineHeight: 1.6 }}>
           reads ~/.kube/config

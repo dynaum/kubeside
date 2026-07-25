@@ -210,6 +210,36 @@ export interface ForwardView {
   error?: string;
 }
 
+export interface PromotionCell {
+  env: string;
+  namespace?: string;
+  state: string; // same, behind, ahead, differs, digest-differs, absent, denied
+  tag?: string;
+  image?: string;
+  digest?: string;
+  digestPending?: boolean;
+  health?: string;
+  ready?: string;
+  revisionAt?: string;
+  note?: string;
+  severe?: boolean;
+}
+
+export interface PromotionRow {
+  app: string;
+  namespace: string;
+  cells: PromotionCell[];
+  drift: number;
+  ahead?: boolean;
+}
+
+export interface PromotionView {
+  envs: { name: string; risk: string; context?: string }[];
+  rows: PromotionRow[];
+  summary: { apps: number; drifted: number; ahead: number };
+  unreachable?: string[];
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -274,6 +304,7 @@ export const api = {
     ),
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
+  promotion: () => get<PromotionView>("/api/promotion"),
   forwards: () => get<ForwardView[]>("/api/forwards"),
   startForward: (context: string, namespace: string, workload: string, remotePort: number) =>
     post<ForwardView>("/api/forwards", { context, namespace, workload, remotePort }),
