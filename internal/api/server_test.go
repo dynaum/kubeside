@@ -25,6 +25,8 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 	return nil, errors.New("no log source in this test")
 }
 
+func (s stubAPI) Observed(string, AppView, AppView) {}
+
 func (s stubAPI) Timeline(contextName, namespace, workload string) (TimelineView, error) {
 	if workload != "checkout" {
 		return TimelineView{}, errors.New("no workload " + workload)

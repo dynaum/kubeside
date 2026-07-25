@@ -56,6 +56,9 @@ type API interface {
 	LogSource(contextName, namespace, workload string) (logs.Source, error)
 	// Timeline reconstructs one workload's history from the cluster, on demand.
 	Timeline(contextName, namespace, workload string) (TimelineView, error)
+	// Observed reports a row that changed between two reads, which is how the
+	// timeline extends forward while kubeside runs.
+	Observed(contextName string, before, after AppView)
 }
 
 // Option configures a Server.

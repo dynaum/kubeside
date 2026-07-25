@@ -183,6 +183,20 @@ Live observations accumulate in memory for the duration of the process.
 - Ring buffer per app, capped by entry count and by total bytes
 - Eviction is oldest-first, and eviction is visible rather than silent
 - Nothing is written anywhere on eviction
+- 2000 entries and 4MB per app, 100MB across every app
+
+What fills it is the delta path already running for the app list: every row that
+changed between two reads is reported, and a health transition becomes an entry.
+Replica counts are dropped, because they churn through every rollout and a
+timeline of them buries the one line that matters.
+
+Live entries merge with reconstruction on every read rather than being cached
+with it. Reconstruction is memoized for thirty seconds; a transition that
+happened ten seconds ago must not wait for that to expire.
+
+The two halves carry different horizons, and they say different things. An
+evicted buffer is a cut in something that was known. A session start is simply
+where kubeside began watching, with the cluster's own history behind it.
 
 Retention did not disappear, it moved from disk to RAM with a smaller budget. The
 cap is enforced from the first release rather than discovered at 400MB.

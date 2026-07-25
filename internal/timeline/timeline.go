@@ -33,6 +33,9 @@ const (
 	KindRestart = "restart"
 	KindScale   = "scale"
 	KindWarning = "warning"
+	// KindHealth is a live transition kubeside watched happen, rather than
+	// something reconstructed from the cluster's own records.
+	KindHealth  = "health"
 	KindRun     = "run"
 	KindSession = "session"
 )

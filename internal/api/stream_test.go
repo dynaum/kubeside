@@ -24,6 +24,7 @@ type streamStub struct {
 	calls     int
 	logSource logs.Source
 	logErr    error
+	changes   []string
 }
 
 func (s *streamStub) LogSource(_, _, _ string) (logs.Source, error) {
@@ -31,6 +32,22 @@ func (s *streamStub) LogSource(_, _, _ string) (logs.Source, error) {
 		return nil, s.logErr
 	}
 	return s.logSource, nil
+}
+
+// observed records what the feed reported, so a test can assert that a live
+// change reached the session buffer.
+func (s *streamStub) Observed(contextName string, before, after AppView) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.changes = append(s.changes, before.Health+"→"+after.Health)
+}
+
+func (s *streamStub) observedChanges() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.changes))
+	copy(out, s.changes)
+	return out
 }
 
 func (s *streamStub) Timeline(_, _, _ string) (TimelineView, error) {
@@ -333,5 +350,48 @@ func TestCSPAllowsTheLoopbackWebsocket(t *testing.T) {
 	}
 	if strings.Contains(csp, "ws://*") {
 		t.Errorf("CSP %q allows any websocket host", csp)
+	}
+}
+
+// A rollout that fails while a developer is watching must land on the timeline,
+// not only in the row colour. The feed already knows what moved.
+func TestFeedReportsChangedRowsAsObservations(t *testing.T) {
+	stub := &streamStub{view: view(app("team-a", "checkout", "healthy"))}
+	s, hs := startStream(t, stub)
+	c := mustDial(t, s, hs)
+
+	send(t, c, ClientMessage{Type: msgSubscribe, View: ViewApps, Context: "qa"})
+	read(t, c)
+
+	stub.set(view(app("team-a", "checkout", "failed")))
+	readUntil(t, c, func(m ServerMessage) bool { return m.Type == msgPatch })
+
+	got := stub.observedChanges()
+	if len(got) == 0 || got[0] != "healthy→failed" {
+		t.Fatalf("observations = %v, want the health transition", got)
+	}
+}
+
+// An app that only gained a replica has not changed state. Recording it would
+// bury the transitions that matter.
+func TestFeedDoesNotReportRowsThatOnlyGrew(t *testing.T) {
+	stub := &streamStub{view: view(app("team-a", "checkout", "healthy"))}
+	s, hs := startStream(t, stub)
+	c := mustDial(t, s, hs)
+
+	send(t, c, ClientMessage{Type: msgSubscribe, View: ViewApps, Context: "qa"})
+	read(t, c)
+
+	grown := app("team-a", "checkout", "healthy")
+	grown.Ready = "4/4"
+	stub.set(view(grown))
+	readUntil(t, c, func(m ServerMessage) bool { return m.Type == msgPatch })
+
+	// The feed reports the row; the service decides it is not worth keeping.
+	// Both halves are tested: here the row arrives with an unchanged health.
+	for _, o := range stub.observedChanges() {
+		if o != "healthy→healthy" {
+			t.Fatalf("observation = %q, want the unchanged health passed through", o)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
+	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
 	"k8s.io/apimachinery/pkg/types"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -31,6 +32,10 @@ type Service struct {
 	// timelines memoizes reconstruction, which reads several collections per
 	// call and is triggered by opening a screen.
 	timelines *memo[TimelineView]
+	// live holds what kubeside watched happen while it was running. It is
+	// merged with reconstruction rather than replacing it: one is what the
+	// cluster remembers, the other is what we saw.
+	live *session.Store
 }
 
 // NewService builds the API backend. conf may be nil, which is the zero-config
@@ -45,6 +50,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 	return &Service{
 		cfg: cfg, mgr: mgr, conf: conf, opts: opts, timeout: timeout,
 		timelines: newMemo[TimelineView](memoTTL),
+		live:      session.New(session.Limits{}),
 	}
 }
 
@@ -189,10 +195,45 @@ func (s *Service) Timeline(contextName, namespace, workload string) (TimelineVie
 	if _, ok := s.cfg.Get(contextName); !ok {
 		return TimelineView{}, errUnknownContext(contextName)
 	}
-	key := contextName + "|" + namespace + "/" + workload
-	return s.timelines.Do(key, func() (TimelineView, error) {
+	key := sessionKey(contextName, namespace, workload)
+	view, err := s.timelines.Do(key, func() (TimelineView, error) {
 		return s.reconstruct(contextName, namespace, workload)
 	})
+	if err != nil {
+		return TimelineView{}, err
+	}
+
+	// Reconstruction is memoized; live observations are not. Merging them on
+	// every call is what keeps a change that happened thirty seconds ago from
+	// waiting for a cache to expire.
+	view.Entries = session.Merge(view.Entries, s.live.Entries(key))
+	if h := s.live.Horizon(key); h != nil {
+		view.Horizons = append(append([]timeline.Horizon{}, view.Horizons...), *h)
+	}
+	return view, nil
+}
+
+// Observed records a row that changed between two reads.
+//
+// Only health transitions are kept. Replica counts churn through every rollout
+// and a timeline of them buries the one line that matters, which is the moment
+// an app stopped being healthy.
+func (s *Service) Observed(contextName string, before, after AppView) {
+	if before.Health == "" || before.Health == after.Health {
+		return
+	}
+	key := sessionKey(contextName, after.Namespace, after.Name)
+	s.live.Record(key, timeline.Entry{
+		At:     time.Now(),
+		Kind:   timeline.KindHealth,
+		Title:  before.Health + " → " + after.Health,
+		Detail: after.Detail,
+		Source: "session",
+	})
+}
+
+func sessionKey(contextName, namespace, workload string) string {
+	return contextName + "|" + namespace + "/" + workload
 }
 
 func (s *Service) reconstruct(contextName, namespace, workload string) (TimelineView, error) {

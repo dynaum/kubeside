@@ -278,17 +278,36 @@ func (f *feed) publish(v AppsView) {
 		msg = ServerMessage{Type: msgSnapshot, View: f.view, Context: f.context, Key: f.key, Seq: f.seq, Snapshot: &snap}
 	default:
 		patch, changed := diffApps(f.last, v)
+		prev := f.last
 		f.last = v
 		if !changed {
 			f.mu.Unlock()
 			return
 		}
+		// The diff is already computed, so live observation costs nothing
+		// extra: every changed row is something kubeside watched happen.
+		f.observe(prev, patch)
 		f.seq++
 		msg = ServerMessage{Type: msgPatch, View: f.view, Context: f.context, Key: f.key, Seq: f.seq, Patch: &patch}
 	}
 	f.mu.Unlock()
 
 	f.broadcast(msg)
+}
+
+// observe hands changed rows to the API, which decides what is worth keeping
+// in the session buffer. The feed does not judge: it only knows what moved.
+func (f *feed) observe(prev AppsView, patch AppsPatch) {
+	if len(patch.Changed) == 0 {
+		return
+	}
+	before := make(map[string]AppView, len(prev.Apps))
+	for _, a := range prev.Apps {
+		before[appKey(a)] = a
+	}
+	for _, a := range patch.Changed {
+		f.hub.api.Observed(f.context, before[appKey(a)], a)
+	}
 }
 
 func (f *feed) broadcast(m ServerMessage) {

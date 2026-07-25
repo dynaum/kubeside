@@ -9,6 +9,7 @@ import (
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
+	"github.com/dynaum/kubeside/internal/timeline"
 )
 
 func serviceFor(t *testing.T, body string, contexts ...kubeconfig.Context) *Service {
@@ -87,5 +88,51 @@ func TestConfiguredMetricsSourceIsHonored(t *testing.T) {
 	}
 	if info.Source != "none" {
 		t.Errorf("source = %q, want none", info.Source)
+	}
+}
+
+// The live half of the timeline: what kubeside watched happen while it ran.
+func TestObservedRecordsAHealthTransition(t *testing.T) {
+	svc := serviceFor(t, "", kubeconfig.Context{Name: "qa1", IsCurrent: true, Server: "https://api"})
+
+	before := AppView{Namespace: "team-a", Name: "checkout", Health: "healthy"}
+	after := AppView{Namespace: "team-a", Name: "checkout", Health: "failed", Detail: "pod checkout-1 is in CrashLoopBackOff"}
+	svc.Observed("qa1", before, after)
+
+	got := svc.live.Entries(sessionKey("qa1", "team-a", "checkout"))
+	if len(got) != 1 {
+		t.Fatalf("entries = %+v, want the transition", got)
+	}
+	if got[0].Title != "healthy → failed" || got[0].Kind != timeline.KindHealth {
+		t.Fatalf("entry = %+v", got[0])
+	}
+	if got[0].Detail != after.Detail {
+		t.Errorf("detail = %q, should carry why", got[0].Detail)
+	}
+}
+
+// Replica counts churn through every rollout. A timeline of them buries the one
+// line that matters.
+func TestObservedIgnoresAChangeThatIsNotHealth(t *testing.T) {
+	svc := serviceFor(t, "", kubeconfig.Context{Name: "qa1", IsCurrent: true, Server: "https://api"})
+
+	before := AppView{Namespace: "team-a", Name: "checkout", Health: "healthy", Ready: "3/4"}
+	after := AppView{Namespace: "team-a", Name: "checkout", Health: "healthy", Ready: "4/4"}
+	svc.Observed("qa1", before, after)
+
+	if got := svc.live.Entries(sessionKey("qa1", "team-a", "checkout")); len(got) != 0 {
+		t.Fatalf("entries = %+v, want none for a replica change", got)
+	}
+}
+
+// A first sighting has nothing to compare against, and "it appeared" is the
+// app list's job, not the timeline's.
+func TestObservedIgnoresAnAppSeenForTheFirstTime(t *testing.T) {
+	svc := serviceFor(t, "", kubeconfig.Context{Name: "qa1", IsCurrent: true, Server: "https://api"})
+
+	svc.Observed("qa1", AppView{}, AppView{Namespace: "team-a", Name: "new", Health: "progressing"})
+
+	if got := svc.live.Entries(sessionKey("qa1", "team-a", "new")); len(got) != 0 {
+		t.Fatalf("entries = %+v, want none for a first sighting", got)
 	}
 }
