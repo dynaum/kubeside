@@ -19,6 +19,8 @@ import (
 // already carries the session token.
 func serveUI(out io.Writer, cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.Options, conf *config.Config, timeout time.Duration, port int, open bool) error {
 	svc := api.NewService(cfg, mgr, opts, conf, timeout)
+	// No tunnel outlives the process that opened it.
+	defer svc.Close()
 
 	ui, built := web.FS()
 	if !built {

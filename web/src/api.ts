@@ -194,6 +194,22 @@ export interface DiffView {
   };
 }
 
+export interface ForwardView {
+  id: string;
+  context: string;
+  namespace: string;
+  workload: string;
+  pod: string;
+  remotePort: number;
+  localPort: number;
+  address: string;
+  state: string;
+  environment?: string;
+  risk?: string;
+  startedAt: string;
+  error?: string;
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -258,6 +274,10 @@ export const api = {
     ),
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
+  forwards: () => get<ForwardView[]>("/api/forwards"),
+  startForward: (context: string, namespace: string, workload: string, remotePort: number) =>
+    post<ForwardView>("/api/forwards", { context, namespace, workload, remotePort }),
+  stopForward: (id: string) => post<ForwardView[]>("/api/forwards", { stop: id }),
   diff: (context: string, namespace: string, workload: string, other: string) =>
     get<DiffView>(
       `/api/diff?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}` +

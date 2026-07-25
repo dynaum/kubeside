@@ -11,6 +11,7 @@ import (
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
+	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
@@ -23,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -46,6 +48,9 @@ type Service struct {
 	// nothing changed" and "we have no idea" are different answers, and the
 	// screen must be able to tell them apart.
 	startedAt time.Time
+	// forwards owns every live port-forward. They die with the process, like
+	// everything else kubeside holds.
+	forwards *forward.Manager
 	// live holds what kubeside watched happen while it was running. It is
 	// merged with reconstruction rather than replacing it: one is what the
 	// cluster remembers, the other is what we saw.
@@ -66,6 +71,11 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 		timelines: newMemo[TimelineView](memoTTL),
 		live:      session.New(session.Limits{}),
 		startedAt: time.Now(),
+		forwards: forward.New(forward.KubeTunnel{
+			RESTConfig: func(contextName string) (*rest.Config, error) {
+				return kubeconfig.RESTConfigFor(opts, contextName)
+			},
+		}),
 	}
 }
 
@@ -753,3 +763,51 @@ func pickContainer(containers []resolved.Container, name string) (resolved.Conta
 	}
 	return resolved.Container{}, false
 }
+
+// StartForward opens a port-forward into one workload.
+//
+// The pod is chosen the same way the configuration screen chooses one: a ready
+// replica, because forwarding into a crash-looping pod produces a tunnel that
+// closes as fast as it opens.
+func (s *Service) StartForward(req ForwardRequest) (forward.Forward, error) {
+	if _, ok := s.cfg.Get(req.Context); !ok {
+		return forward.Forward{}, errUnknownContext(req.Context)
+	}
+	if req.RemotePort <= 0 {
+		return forward.Forward{}, fmt.Errorf("a container port is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, req.Context); err != nil {
+		return forward.Forward{}, err
+	}
+
+	pod := req.Pod
+	if pod == "" {
+		app, err := s.appOf(ctx, req.Context, req.Namespace, req.Workload)
+		if err != nil {
+			return forward.Forward{}, err
+		}
+		if pod = representativePod(app); pod == "" {
+			return forward.Forward{}, fmt.Errorf("%s has no pods to forward to", req.Workload)
+		}
+	}
+
+	env := s.envOf(req.Context)
+	return s.forwards.Start(ctx, forward.Target{
+		Context: req.Context, Namespace: req.Namespace, Workload: req.Workload,
+		Pod: pod, RemotePort: req.RemotePort, LocalPort: req.LocalPort,
+		Environment: env.Name, Risk: env.Risk,
+	})
+}
+
+// Forwards lists every live tunnel.
+func (s *Service) Forwards() []forward.Forward { return s.forwards.List() }
+
+// StopForward closes one tunnel.
+func (s *Service) StopForward(id string) error { return s.forwards.Stop(id) }
+
+// Close releases everything the service holds. No tunnel outlives the process
+// that opened it.
+func (s *Service) Close() { s.forwards.StopAll() }

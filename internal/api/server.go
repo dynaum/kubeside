@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 )
 
@@ -66,6 +67,11 @@ type API interface {
 	RevealSecret(contextName, namespace, secret, key, workload string) (RevealView, error)
 	// Diff compares one app's configuration across two environments.
 	Diff(req DiffRequest) (DiffView, error)
+	// StartForward opens a port-forward, Forwards lists them, StopForward
+	// closes one.
+	StartForward(req ForwardRequest) (forward.Forward, error)
+	Forwards() []forward.Forward
+	StopForward(id string) error
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -98,6 +104,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/secret", s.handleReveal)
 	mux.HandleFunc("/api/diff", s.handleDiff)
+	mux.HandleFunc("/api/forwards", s.handleForwards)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +303,48 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleForwards lists, opens, and closes port-forwards.
+//
+// Opening and closing are POSTs because they change what is listening on the
+// developer's machine, which is not something a link should be able to do.
+func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, s.api.Forwards())
+
+	case http.MethodPost:
+		var req struct {
+			ForwardRequest
+			Stop string `json:"stop"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed request"})
+			return
+		}
+		if req.Stop != "" {
+			if err := s.api.StopForward(req.Stop); err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, s.api.Forwards())
+			return
+		}
+		if req.Context == "" || req.Namespace == "" || req.Workload == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context, namespace and workload are required"})
+			return
+		}
+		f, err := s.api.StartForward(req.ForwardRequest)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, f)
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "use GET to list or POST to open and close"})
+	}
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {

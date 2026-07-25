@@ -146,6 +146,16 @@ type DiffView struct {
 	Summary   resolved.Summary    `json:"summary"`
 }
 
+// ForwardRequest asks for one port-forward.
+type ForwardRequest struct {
+	Context    string `json:"context"`
+	Namespace  string `json:"namespace"`
+	Workload   string `json:"workload"`
+	Pod        string `json:"pod,omitempty"`
+	RemotePort int    `json:"remotePort"`
+	LocalPort  int    `json:"localPort,omitempty"`
+}
+
 // TimelineView is one app's reconstructed history, plus the honesty metadata:
 // where each source ran out and which could not be read at all.
 type TimelineView struct {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/resolved"
 )
@@ -49,6 +50,28 @@ func (s *streamStub) observedChanges() []string {
 	out := make([]string, len(s.changes))
 	copy(out, s.changes)
 	return out
+}
+
+func (s *streamStub) StartForward(req ForwardRequest) (forward.Forward, error) {
+	if req.RemotePort == 0 {
+		return forward.Forward{}, errors.New("a container port is required")
+	}
+	return forward.Forward{
+		ID: "fwd-1", Context: req.Context, Namespace: req.Namespace, Workload: req.Workload,
+		RemotePort: req.RemotePort, LocalPort: 51234, Address: "127.0.0.1:51234",
+		State: forward.StateReady, Environment: "qa",
+	}, nil
+}
+
+func (s *streamStub) Forwards() []forward.Forward {
+	return []forward.Forward{{ID: "fwd-1", Workload: "checkout", LocalPort: 51234, State: forward.StateReady}}
+}
+
+func (s *streamStub) StopForward(id string) error {
+	if id != "fwd-1" {
+		return errors.New("no forward " + id)
+	}
+	return nil
 }
 
 func (s *streamStub) Diff(req DiffRequest) (DiffView, error) {

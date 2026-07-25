@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   api,
-  type AppDetailView, type ContextView, type PodView, type TimelineEntry, type TimelineHorizon,
+  type AppDetailView, type ContextView, type ForwardView, type PodView,
+  type TimelineEntry, type TimelineHorizon,
 } from "./api";
 import { envToken, healthClass } from "./health";
 import { Glyph } from "./Status";
@@ -30,6 +31,9 @@ export function AppDetailScreen({
 }) {
   const [view, setView] = useState<AppDetailView | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [forwards, setForwards] = useState<ForwardView[]>([]);
+  const [forwardErr, setForwardErr] = useState<string | null>(null);
+  const [port, setPort] = useState("8080");
 
   useEffect(() => {
     setView(null);
@@ -40,6 +44,30 @@ export function AppDetailScreen({
       .catch((e) => { if (alive) setErr(String(e)); });
     return () => { alive = false; };
   }, [context.name, namespace, workload]);
+
+  // Forwards are process-wide, so the list is read once per screen rather than
+  // guessed from what this screen opened.
+  useEffect(() => {
+    let alive = true;
+    api.forwards().then((f) => { if (alive) setForwards(f); }).catch(() => {});
+    return () => { alive = false; };
+  }, [context.name, namespace, workload]);
+
+  const mine = forwards.filter(
+    (f) => f.context === context.name && f.namespace === namespace && f.workload === workload,
+  );
+
+  const openForward = () => {
+    setForwardErr(null);
+    api.startForward(context.name, namespace, workload, Number(port))
+      .then(() => api.forwards())
+      .then(setForwards)
+      .catch((e) => setForwardErr(String(e.message ?? e)));
+  };
+
+  const closeForward = (id: string) => {
+    api.stopForward(id).then(setForwards).catch((e) => setForwardErr(String(e.message ?? e)));
+  };
 
   const env = envToken(context);
 
@@ -61,10 +89,42 @@ export function AppDetailScreen({
           </span>
         )}
         <span className="spacer" />
+        <input
+          className="field"
+          style={{ minWidth: 70, width: 70 }}
+          value={port}
+          onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+          title="container port to forward"
+        />
+        <button className="btn" onClick={openForward} disabled={!port}>Port-forward</button>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
 
       <div className="page">
+        {/* A tunnel into production is a different thing from one into qa, so
+            every forward carries its environment colour. */}
+        {(mine.length > 0 || forwardErr) && (
+          <div className="banner" data-env={env} style={{ marginBottom: "var(--s4)" }}>
+            {forwardErr ? (
+              <span style={{ color: "var(--warn)" }}>{forwardErr}</span>
+            ) : (
+              <>
+                <span>Forwarding</span>
+                {mine.map((f) => (
+                  <span key={f.id} className="row" style={{ gap: "var(--s2)" }}>
+                    <a className="mono" href={`http://${f.address}`} target="_blank" rel="noreferrer">
+                      {f.address}
+                    </a>
+                    <span className="dim">→ {f.pod}:{f.remotePort}</span>
+                    <button className="btn" style={{ padding: "1px 6px" }} onClick={() => closeForward(f.id)}>
+                      Stop
+                    </button>
+                  </span>
+                ))}
+              </>
+            )}
+          </div>
+        )}
         {err && (
           <div className="empty">
             <div className="head">Could not open {workload}</div>

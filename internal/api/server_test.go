@@ -10,6 +10,7 @@ import (
 
 	"time"
 
+	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
@@ -27,6 +28,28 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) StartForward(req ForwardRequest) (forward.Forward, error) {
+	if req.RemotePort == 0 {
+		return forward.Forward{}, errors.New("a container port is required")
+	}
+	return forward.Forward{
+		ID: "fwd-1", Context: req.Context, Namespace: req.Namespace, Workload: req.Workload,
+		RemotePort: req.RemotePort, LocalPort: 51234, Address: "127.0.0.1:51234",
+		State: forward.StateReady, Environment: "qa",
+	}, nil
+}
+
+func (s stubAPI) Forwards() []forward.Forward {
+	return []forward.Forward{{ID: "fwd-1", Workload: "checkout", LocalPort: 51234, State: forward.StateReady}}
+}
+
+func (s stubAPI) StopForward(id string) error {
+	if id != "fwd-1" {
+		return errors.New("no forward " + id)
+	}
+	return nil
+}
 
 func (s stubAPI) Diff(req DiffRequest) (DiffView, error) {
 	if req.Other == "unreachable" {
@@ -604,6 +627,66 @@ func TestDiffRequiresBothSides(t *testing.T) {
 func TestDiffNeedsTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/diff?context=qa&namespace=team-a&workload=checkout&other=prod", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func TestForwardsListLiveTunnels(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/forwards?"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var got []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0]["localPort"] != float64(51234) {
+		t.Fatalf("forwards = %+v", got)
+	}
+}
+
+func TestForwardOpensATunnel(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/forwards?"+tokenParam+"="+s.Token(),
+		`{"context":"qa","namespace":"team-a","workload":"checkout","remotePort":8080}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "127.0.0.1:51234") {
+		t.Errorf("body = %q, should carry the address to hit", w.Body.String())
+	}
+}
+
+func TestForwardWithoutAPortIsRefused(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/forwards?"+tokenParam+"="+s.Token(),
+		`{"context":"qa","namespace":"team-a","workload":"checkout"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestStoppingAForwardReturnsWhatIsLeft(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/forwards?"+tokenParam+"="+s.Token(), `{"stop":"fwd-1"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStoppingAnUnknownForwardIs404(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/forwards?"+tokenParam+"="+s.Token(), `{"stop":"nope"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+// A tunnel into the cluster is not something a link should be able to open.
+func TestForwardsNeedTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/forwards", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }
