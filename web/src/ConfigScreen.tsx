@@ -22,11 +22,17 @@ export function ConfigScreen({
   const [view, setView] = useState<ConfigView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
+  // Revealed values live only in this component's state. They are never merged
+  // back into the view, so a re-read of the config returns to masked.
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [revealErr, setRevealErr] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setView(null);
     setErr(null);
     setSelected(0);
+    setRevealed({});
+    setRevealErr({});
     let alive = true;
     api.config(context.name, namespace, workload)
       .then((v) => { if (alive) setView(v); })
@@ -35,6 +41,18 @@ export function ConfigScreen({
   }, [context.name, namespace, workload]);
 
   const container = view?.containers[selected];
+
+  const reveal = (v: ResolvedValue) => {
+    const at = `${container?.name}|${v.key}`;
+    api.reveal(context.name, namespace, v.source.ref ?? "", v.source.key || v.key, workload)
+      .then((r) => {
+        setRevealed((prev) => ({
+          ...prev,
+          [at]: r.binary ? (r.note ?? "binary data") : (r.value ?? ""),
+        }));
+      })
+      .catch((e) => setRevealErr((prev) => ({ ...prev, [at]: String(e.message ?? e) })));
+  };
 
   return (
     <>
@@ -93,7 +111,12 @@ export function ConfigScreen({
                 <span>values the container actually received</span>
               </div>
               <div className="frame-body" style={{ padding: "var(--s4)" }}>
-                <Table container={container} />
+                <Table
+                  container={container}
+                  reveal={reveal}
+                  revealed={revealed}
+                  revealErr={revealErr}
+                />
               </div>
             </div>
 
@@ -132,7 +155,14 @@ export function ConfigScreen({
   );
 }
 
-function Table({ container }: { container: ResolvedContainer }) {
+function Table({
+  container, reveal, revealed, revealErr,
+}: {
+  container: ResolvedContainer;
+  reveal: (v: ResolvedValue) => void;
+  revealed: Record<string, string>;
+  revealErr: Record<string, string>;
+}) {
   return (
     <table className="kv">
       <thead>
@@ -146,7 +176,14 @@ function Table({ container }: { container: ResolvedContainer }) {
         {container.values.map((v) => (
           <tr key={v.key}>
             <td className="k">{v.key}</td>
-            <td className="v"><ValueCell value={v} /></td>
+            <td className="v">
+              <ValueCell
+                value={v}
+                revealed={revealed[`${container.name}|${v.key}`]}
+                error={revealErr[`${container.name}|${v.key}`]}
+                onReveal={() => reveal(v)}
+              />
+            </td>
             <td className="src"><SourceCell value={v} /></td>
           </tr>
         ))}
@@ -167,14 +204,47 @@ function Table({ container }: { container: ResolvedContainer }) {
   );
 }
 
-function ValueCell({ value: v }: { value: ResolvedValue }) {
+function ValueCell({
+  value: v, revealed, error, onReveal,
+}: {
+  value: ResolvedValue;
+  revealed?: string;
+  error?: string;
+  onReveal: () => void;
+}) {
   if (v.masked) {
+    if (revealed !== undefined) {
+      return (
+        <>
+          {revealed}
+          {/* The reveal is on the session timeline. Saying so is part of the
+              deal: reading a credential leaves a trace. */}
+          <span className="tag tag-drift" style={{ marginLeft: 6 }} title="this reveal was recorded on the timeline">
+            revealed
+          </span>
+        </>
+      );
+    }
+    if (error) {
+      return (
+        <>
+          <span className="masked">••••••••••••</span>
+          <span className="dim" style={{ marginLeft: 6, fontSize: 11 }}>{error}</span>
+        </>
+      );
+    }
     return (
       <>
         <span className="masked">••••••••••••</span>
         {/* Disabled, never hidden: the control names what it needs. */}
         <span className="rbac" style={{ marginLeft: "var(--s2)" }}>
-          <button className="btn" disabled style={{ padding: "1px 6px" }} title="needs get on this Secret">
+          <button
+            className="btn"
+            style={{ padding: "1px 6px" }}
+            disabled={!v.canReveal}
+            title={v.canReveal ? "fetches this key and records the reveal on the timeline" : v.revealReason}
+            onClick={onReveal}
+          >
             Reveal
           </button>
         </span>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
@@ -14,8 +15,10 @@ import (
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
+	authv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -431,7 +434,9 @@ func (s *Service) Config(contextName, namespace, workload string) (ConfigView, e
 		return ConfigView{}, err
 	}
 
-	cfg := resolved.Resolve(ctx, client, pod)
+	cfg := resolved.ResolveWith(ctx, client, pod, func(secret string) (bool, string) {
+		return s.mayGetSecret(ctx, client, namespace, secret)
+	})
 	return ConfigView{
 		Context:    contextName,
 		Namespace:  namespace,
@@ -460,3 +465,100 @@ func representativePod(a apps.App) string {
 	}
 	return fallback
 }
+
+// mayGetSecret asks the cluster whether this reader may get one Secret.
+//
+// The question is asked of the apiserver rather than guessed from a role, and
+// it names the specific Secret: a reader with get on one Secret and not another
+// should see exactly one reveal enabled.
+func (s *Service) mayGetSecret(ctx context.Context, client kubernetes.Interface, namespace, secret string) (bool, string) {
+	review := &authv1.SelfSubjectAccessReview{
+		Spec: authv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authv1.ResourceAttributes{
+				Namespace: namespace, Verb: "get", Resource: "secrets", Name: secret,
+			},
+		},
+	}
+	got, err := client.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		// An unanswerable question is not a yes.
+		return false, fmt.Sprintf("could not check permission to get secret %s: %v", secret, err)
+	}
+	if !got.Status.Allowed {
+		return false, fmt.Sprintf("needs get on secret %s in %s", secret, namespace)
+	}
+	return true, ""
+}
+
+// RevealSecret fetches one key of one Secret, on demand.
+//
+// Three things make this safe enough to exist. The permission is checked
+// against the specific Secret, not inferred. Only the requested key is
+// returned, never the whole object. And every reveal is written to the session
+// timeline, so reading a production credential leaves a trace in the same place
+// every other change does.
+func (s *Service) RevealSecret(contextName, namespace, secret, key, workload string) (RevealView, error) {
+	if _, ok := s.cfg.Get(contextName); !ok {
+		return RevealView{}, errUnknownContext(contextName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return RevealView{}, err
+	}
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return RevealView{}, fmt.Errorf("context %q is not connected", contextName)
+	}
+
+	if allowed, reason := s.mayGetSecret(ctx, client, namespace, secret); !allowed {
+		return RevealView{}, &ForbiddenError{Reason: reason}
+	}
+
+	obj, err := client.CoreV1().Secrets(namespace).Get(ctx, secret, metav1.GetOptions{})
+	if err != nil {
+		return RevealView{}, err
+	}
+	raw, ok := obj.Data[key]
+	if !ok {
+		return RevealView{}, fmt.Errorf("secret %s has no key %q", secret, key)
+	}
+
+	// The reveal is recorded before the value is returned, so a value that
+	// reached a screen is always a value the timeline knows about.
+	s.recordReveal(contextName, namespace, workload, secret, key)
+
+	// client-go decodes base64 already. Nobody should have to run base64 -d to
+	// read their own configuration.
+	if !utf8.Valid(raw) {
+		return RevealView{
+			Secret: secret, Key: key, Binary: true,
+			Note: fmt.Sprintf("%d bytes of binary data, not text", len(raw)),
+		}, nil
+	}
+	return RevealView{Secret: secret, Key: key, Value: string(raw)}, nil
+}
+
+// recordReveal writes the reveal to the session timeline. The value never
+// appears in the entry: an audit trail that leaks what it audits is worse than
+// none.
+func (s *Service) recordReveal(contextName, namespace, workload, secret, key string) {
+	if workload == "" {
+		return
+	}
+	s.live.Record(sessionKey(contextName, namespace, workload), timeline.Entry{
+		At:     time.Now(),
+		Kind:   timeline.KindReveal,
+		Title:  "revealed " + key,
+		Detail: "from secret " + secret,
+		Source: "session",
+		Actor:  timeline.Actor{Kind: timeline.ActorKubectl, Name: "this kubeside session"},
+	})
+}
+
+// ForbiddenError is a refusal the transport turns into a 403 with the verb
+// named, rather than a generic failure.
+type ForbiddenError struct{ Reason string }
+
+func (e *ForbiddenError) Error() string { return e.Reason }

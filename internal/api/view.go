@@ -101,6 +101,18 @@ type ConfigView struct {
 	Caveat     string               `json:"caveat,omitempty"`
 }
 
+// RevealView is one secret key, fetched on demand. It carries exactly the key
+// that was asked for and nothing else from the object.
+type RevealView struct {
+	Secret string `json:"secret"`
+	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
+	// Binary marks data that is not text. Rendering bytes as characters would
+	// produce garbage and hide what the value actually is.
+	Binary bool   `json:"binary,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
 // TimelineView is one app's reconstructed history, plus the honesty metadata:
 // where each source ran out and which could not be read at all.
 type TimelineView struct {

@@ -350,3 +350,78 @@ func TestEmptyInlineValueIsStillAValue(t *testing.T) {
 		t.Fatalf("value = %+v, want an empty value that is not missing", v)
 	}
 }
+
+// The reveal control is never hidden, so the table has to know whether it
+// would work. A probe per Secret answers that once.
+func TestMaskedValuesCarryWhetherRevealIsPermitted(t *testing.T) {
+	pod := podWith([]corev1.Container{{
+		Name: "app",
+		Env: []corev1.EnvVar{{
+			Name: "PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "db"}, Key: "PASSWORD",
+			}},
+		}},
+	}}, nil, nil)
+
+	got := ResolveWith(context.Background(), fake.NewSimpleClientset(pod), pod, func(secret string) (bool, string) {
+		return false, "needs get on secret " + secret
+	})
+
+	v, _ := find(got.Containers[0].Values, "PASSWORD")
+	if v.CanReveal {
+		t.Fatal("reveal is offered for a Secret the user cannot get")
+	}
+	if v.RevealReason == "" {
+		t.Error("a disabled reveal must name what it needs")
+	}
+}
+
+func TestPermittedSecretsAreRevealable(t *testing.T) {
+	pod := podWith([]corev1.Container{{
+		Name: "app",
+		Env: []corev1.EnvVar{{
+			Name: "PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "db"}, Key: "PASSWORD",
+			}},
+		}},
+	}}, nil, nil)
+
+	got := ResolveWith(context.Background(), fake.NewSimpleClientset(pod), pod, func(string) (bool, string) {
+		return true, ""
+	})
+
+	v, _ := find(got.Containers[0].Values, "PASSWORD")
+	if !v.CanReveal || !v.Masked {
+		t.Fatalf("value = %+v, want masked but revealable", v)
+	}
+}
+
+// The probe runs once per Secret however many keys reference it.
+func TestRevealProbeRunsOncePerSecret(t *testing.T) {
+	pod := podWith([]corev1.Container{{
+		Name: "app",
+		Env: []corev1.EnvVar{
+			{Name: "A", ValueFrom: secretRef("db", "A")},
+			{Name: "B", ValueFrom: secretRef("db", "B")},
+			{Name: "C", ValueFrom: secretRef("other", "C")},
+		},
+	}}, nil, nil)
+
+	probes := map[string]int{}
+	ResolveWith(context.Background(), fake.NewSimpleClientset(pod), pod, func(secret string) (bool, string) {
+		probes[secret]++
+		return true, ""
+	})
+
+	if probes["db"] != 1 || probes["other"] != 1 {
+		t.Fatalf("probes = %v, want one per Secret", probes)
+	}
+}
+
+func secretRef(name, key string) *corev1.EnvVarSource {
+	return &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: name}, Key: key,
+	}}
+}

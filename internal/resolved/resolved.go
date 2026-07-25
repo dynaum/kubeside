@@ -55,6 +55,11 @@ type Value struct {
 	// "but the ConfigMap says something else" comes from.
 	Overrides bool   `json:"overrides,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	// CanReveal reports whether this reader may fetch the masked value.
+	// RevealReason names what is missing when they may not, because a control
+	// is disabled and explained, never hidden.
+	CanReveal    bool   `json:"canReveal,omitempty"`
+	RevealReason string `json:"revealReason,omitempty"`
 }
 
 // Mount is file-based configuration. A tool that shows only environment
@@ -65,6 +70,10 @@ type Mount struct {
 	Masked   bool   `json:"masked,omitempty"`
 	ReadOnly bool   `json:"readOnly,omitempty"`
 }
+
+// Permit reports whether this reader may read one Secret, and what they need
+// when they may not.
+type Permit func(secret string) (allowed bool, reason string)
 
 // Container is one container's resolved configuration.
 type Container struct {
@@ -93,7 +102,16 @@ const staleCaveat = "values are read from the ConfigMaps as they are now; a cont
 // Every ConfigMap is fetched at most once however many keys reference it, and
 // no Secret is fetched at all.
 func Resolve(ctx context.Context, client kubernetes.Interface, pod *corev1.Pod) Config {
-	r := &resolver{ctx: ctx, client: client, pod: pod, maps: map[string]*configMap{}}
+	return ResolveWith(ctx, client, pod, nil)
+}
+
+// ResolveWith adds a permission probe, so every masked row knows whether its
+// reveal would work before anybody clicks it.
+func ResolveWith(ctx context.Context, client kubernetes.Interface, pod *corev1.Pod, permit Permit) Config {
+	r := &resolver{
+		ctx: ctx, client: client, pod: pod,
+		maps: map[string]*configMap{}, permit: permit, permits: map[string]permitResult{},
+	}
 
 	out := Config{Pod: pod.Name, Caveat: staleCaveat}
 	// The application containers lead: they are what the developer opened the
@@ -112,11 +130,31 @@ type configMap struct {
 	err  error
 }
 
+type permitResult struct {
+	allowed bool
+	reason  string
+}
+
 type resolver struct {
-	ctx    context.Context
-	client kubernetes.Interface
-	pod    *corev1.Pod
-	maps   map[string]*configMap
+	ctx     context.Context
+	client  kubernetes.Interface
+	pod     *corev1.Pod
+	maps    map[string]*configMap
+	permit  Permit
+	permits map[string]permitResult
+}
+
+// mayReveal probes once per Secret, however many keys reference it.
+func (r *resolver) mayReveal(secret string) (bool, string) {
+	if r.permit == nil {
+		return false, "reveal is not available in this build"
+	}
+	if p, ok := r.permits[secret]; ok {
+		return p.allowed, p.reason
+	}
+	allowed, reason := r.permit(secret)
+	r.permits[secret] = permitResult{allowed, reason}
+	return allowed, reason
 }
 
 func (r *resolver) container(c corev1.Container, init bool) Container {
@@ -176,11 +214,14 @@ func (r *resolver) envFrom(from corev1.EnvFromSource) []Value {
 	case from.SecretRef != nil:
 		// The keys of a Secret cannot be listed without reading it, and reading
 		// it is what masking avoids. The row names the Secret instead.
+		allowed, reason := r.mayReveal(from.SecretRef.Name)
 		return []Value{{
-			Key:    from.Prefix + "*",
-			Source: Source{Kind: SourceSecret, Ref: from.SecretRef.Name},
-			Masked: true,
-			Reason: "every key of this Secret is in the environment; values are not read",
+			Key:          from.Prefix + "*",
+			Source:       Source{Kind: SourceSecret, Ref: from.SecretRef.Name},
+			Masked:       true,
+			Reason:       "every key of this Secret is in the environment; values are not read",
+			CanReveal:    allowed,
+			RevealReason: reason,
 		}}
 	}
 	return nil
@@ -220,6 +261,7 @@ func (r *resolver) env(e corev1.EnvVar) Value {
 		ref := e.ValueFrom.SecretKeyRef
 		v.Source = Source{Kind: SourceSecret, Ref: ref.Name, Key: ref.Key}
 		v.Masked = true
+		v.CanReveal, v.RevealReason = r.mayReveal(ref.Name)
 
 	case e.ValueFrom.FieldRef != nil:
 		path := e.ValueFrom.FieldRef.FieldPath

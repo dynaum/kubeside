@@ -28,6 +28,16 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
 
+func (s stubAPI) RevealSecret(_, _, secret, key, _ string) (RevealView, error) {
+	if secret == "locked" {
+		return RevealView{}, &ForbiddenError{Reason: "needs get on secret locked in team-a"}
+	}
+	if key != "STRIPE_SECRET_KEY" {
+		return RevealView{}, errors.New("no key " + key)
+	}
+	return RevealView{Secret: secret, Key: key, Value: "sk_live_donotleak"}, nil
+}
+
 func (s stubAPI) Config(contextName, namespace, workload string) (ConfigView, error) {
 	if workload != "checkout" {
 		return ConfigView{}, errors.New("no workload " + workload)
@@ -474,5 +484,70 @@ func TestConfigNeedsTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/config?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func postJSON(t *testing.T, s *Server, target, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest("POST", target, strings.NewReader(body))
+	r.Host = "127.0.0.1:7654"
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	return w
+}
+
+func TestRevealReturnsTheValueToAPermittedReader(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/secret?"+tokenParam+"="+s.Token(),
+		`{"context":"qa","namespace":"team-a","secret":"payments-stripe","key":"STRIPE_SECRET_KEY","workload":"checkout"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got RevealView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Value != "sk_live_donotleak" {
+		t.Errorf("value = %q", got.Value)
+	}
+}
+
+// A refusal is a 403 that names the verb, not a generic failure.
+func TestRevealRefusalIs403AndNamesTheVerb(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/secret?"+tokenParam+"="+s.Token(),
+		`{"context":"qa","namespace":"team-a","secret":"locked","key":"K"}`)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "get on secret locked") {
+		t.Errorf("body = %q, should name what is needed", w.Body.String())
+	}
+}
+
+// A secret value must never travel in a URL, where it lands in history and
+// logs. The endpoint refuses anything but POST.
+func TestRevealRefusesGET(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/secret?"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestRevealNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/secret",
+		`{"context":"qa","namespace":"team-a","secret":"payments-stripe","key":"STRIPE_SECRET_KEY"}`)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestRevealRequiresEveryCoordinate(t *testing.T) {
+	s := newTestServer(t)
+	w := postJSON(t, s, "/api/secret?"+tokenParam+"="+s.Token(), `{"context":"qa","namespace":"team-a"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }

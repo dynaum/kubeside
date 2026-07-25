@@ -50,6 +50,10 @@ func (s *streamStub) observedChanges() []string {
 	return out
 }
 
+func (s *streamStub) RevealSecret(_, _, _, _, _ string) (RevealView, error) {
+	return RevealView{}, errors.New("no reveal in this test")
+}
+
 func (s *streamStub) Config(_, _, _ string) (ConfigView, error) {
 	return ConfigView{}, errors.New("no config in this test")
 }

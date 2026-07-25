@@ -35,7 +35,11 @@ const (
 	KindWarning = "warning"
 	// KindHealth is a live transition kubeside watched happen, rather than
 	// something reconstructed from the cluster's own records.
-	KindHealth  = "health"
+	KindHealth = "health"
+	// KindReveal records that somebody read a secret value through kubeside.
+	// Reading a production credential should leave a trace in the same place
+	// every other change does.
+	KindReveal  = "reveal"
 	KindRun     = "run"
 	KindSession = "session"
 )

@@ -111,6 +111,16 @@ export interface ResolvedValue {
   missing?: boolean;
   overrides?: boolean;
   reason?: string;
+  canReveal?: boolean;
+  revealReason?: string;
+}
+
+export interface RevealView {
+  secret: string;
+  key: string;
+  value?: string;
+  binary?: boolean;
+  note?: string;
 }
 
 export interface ResolvedMount {
@@ -158,6 +168,28 @@ function token(): string {
   return new URLSearchParams(window.location.search).get("t") ?? "";
 }
 
+// post carries a body rather than query parameters, because a secret value
+// must never travel in a URL where it would land in history and logs.
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${path}${sep}t=${encodeURIComponent(token())}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? text;
+    } catch {
+      // The body was not JSON; the raw text is the best message available.
+    }
+    throw new Error(message || res.statusText);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function get<T>(path: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
   const res = await fetch(`${path}${sep}t=${encodeURIComponent(token())}`, {
@@ -177,6 +209,8 @@ export const api = {
     get<AppDetailView>(
       `/api/app?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,
     ),
+  reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
+    post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
   config: (context: string, namespace: string, workload: string) =>
     get<ConfigView>(
       `/api/config?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,

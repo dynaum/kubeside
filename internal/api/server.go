@@ -19,7 +19,9 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -60,6 +62,8 @@ type API interface {
 	AppDetail(contextName, namespace, workload string) (AppDetailView, error)
 	// Config resolves what one container actually received.
 	Config(contextName, namespace, workload string) (ConfigView, error)
+	// RevealSecret fetches one key of one Secret, gated and recorded.
+	RevealSecret(contextName, namespace, secret, key, workload string) (RevealView, error)
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -90,6 +94,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/apps", s.handleApps)
 	mux.HandleFunc("/api/app", s.handleAppDetail)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/secret", s.handleReveal)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +250,45 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.api.Apps(name)
 	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleReveal is a POST because it has consequences: it reads a credential and
+// writes to the session timeline. A secret value must also never travel in a
+// URL, where it would land in history and logs.
+func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "reveal must be a POST"})
+		return
+	}
+	var req struct {
+		Context   string `json:"context"`
+		Namespace string `json:"namespace"`
+		Secret    string `json:"secret"`
+		Key       string `json:"key"`
+		Workload  string `json:"workload"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed request"})
+		return
+	}
+	if req.Context == "" || req.Namespace == "" || req.Secret == "" || req.Key == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context, namespace, secret and key are required"})
+		return
+	}
+
+	out, err := s.api.RevealSecret(req.Context, req.Namespace, req.Secret, req.Key, req.Workload)
+	if err != nil {
+		var forbidden *ForbiddenError
+		if errors.As(err, &forbidden) {
+			// The refusal names the verb, so the developer knows what to ask
+			// for rather than what went wrong.
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": forbidden.Reason})
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
