@@ -3,12 +3,14 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
+	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
 
@@ -134,5 +136,44 @@ func TestObservedIgnoresAnAppSeenForTheFirstTime(t *testing.T) {
 
 	if got := svc.live.Entries(sessionKey("qa1", "team-a", "new")); len(got) != 0 {
 		t.Fatalf("entries = %+v, want none for a first sighting", got)
+	}
+}
+
+// The session marker is mandatory, per docs/03-product-spec.md. An app that
+// has been watched all along without changing still gets one: "we were
+// watching and nothing happened" is a different answer from "we have no idea",
+// and an unmarked lane says the wrong one.
+func TestTimelineAlwaysCarriesTheSessionMarker(t *testing.T) {
+	svc := serviceFor(t, "", kubeconfig.Context{Name: "qa1", IsCurrent: true, Server: "https://api"})
+
+	h := svc.sessionHorizon(sessionKey("qa1", "team-a", "never-changed"))
+	if h.Source != "session" || h.Pruned {
+		t.Fatalf("horizon = %+v, want an unpruned session marker", h)
+	}
+	if !strings.Contains(h.Reason, "kubeside started") {
+		t.Errorf("reason = %q", h.Reason)
+	}
+	if h.At.Before(svc.startedAt) || h.At.After(time.Now()) {
+		t.Errorf("marker at %v, want the moment this process began watching", h.At)
+	}
+}
+
+// Once the buffer has evicted, the marker changes meaning: a cut in something
+// that was known, not the beginning of watching.
+func TestEvictedSessionMarkerReplacesTheStartMarker(t *testing.T) {
+	svc := serviceFor(t, "", kubeconfig.Context{Name: "qa1", IsCurrent: true, Server: "https://api"})
+	svc.live = session.New(session.Limits{MaxEntriesPerApp: 1})
+
+	key := sessionKey("qa1", "team-a", "checkout")
+	for i := 0; i < 3; i++ {
+		svc.live.Record(key, timeline.Entry{
+			At: time.Now().Add(time.Duration(i) * time.Second), Kind: timeline.KindHealth,
+			Title: "healthy → failed", Source: "session",
+		})
+	}
+
+	h := svc.sessionHorizon(key)
+	if !h.Pruned || !strings.Contains(h.Reason, "evicted") {
+		t.Fatalf("horizon = %+v, want the eviction marker", h)
 	}
 }

@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import { api, type AppDetailView, type ContextView, type PodView, type TimelineEntry } from "./api";
+import {
+  api,
+  type AppDetailView, type ContextView, type PodView, type TimelineEntry, type TimelineHorizon,
+} from "./api";
 import { envToken, healthClass } from "./health";
 import { Glyph } from "./Status";
-import { age, clock, laneEntries, LANES, position, span, ticks, type Span } from "./detail";
+import {
+  age, clock, fullyUnknown, laneEntries, LANES, marker, position, span, ticks, type Span,
+} from "./detail";
 
 // Screen 2. What changed, and when.
 //
@@ -107,8 +112,22 @@ function Body({ view }: { view: AppDetailView }) {
           <span>Timeline</span>
           <span>reconstructed from cluster · nothing stored on disk</span>
         </div>
+        {horizons.length > 0 && (
+          <div style={{
+            padding: "var(--s2) var(--s3)", borderBottom: "1px solid var(--line)",
+            display: "flex", flexWrap: "wrap", gap: "var(--s4)", fontSize: 11, color: "var(--fg-3)",
+          }}>
+            {/* The markers on the axis are short by necessity. The reasons
+                belong on screen too: a horizon nobody can read is decoration. */}
+            {horizons.map((h, i) => (
+              <span key={i}>
+                <span className="mono" style={{ color: "var(--fg-4)" }}>{h.source}</span> · {h.reason}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="frame-body">
-          <Axis entries={entries} span={s} gaps={gaps} />
+          <Axis entries={entries} span={s} horizons={horizons} gaps={gaps} />
         </div>
       </div>
 
@@ -121,10 +140,11 @@ function Body({ view }: { view: AppDetailView }) {
 }
 
 function Axis({
-  entries, span: s, gaps,
+  entries, span: s, horizons, gaps,
 }: {
   entries: TimelineEntry[];
   span: Span;
+  horizons: TimelineHorizon[];
   gaps: { source: string; reason: string }[];
 }) {
   return (
@@ -134,28 +154,57 @@ function Axis({
         // A source that could not be read is named on its own lane. An empty
         // lane with no explanation reads as "this never happened".
         const gap = gaps.find((g) => g.source === gapSource(lane.key));
+        const m = marker(horizons, lane, s);
+        const blank = fullyUnknown(mine, m) && !gap;
+
         return (
           <div className="tl-lane" key={lane.key}>
             <span className="lane-label">{lane.label}</span>
             <div className="tl-track">
               <div className="tl-rule" />
-              {gap ? (
+
+              {/* Everything left of the marker is not knowable. The hatch is
+                  what keeps an empty stretch from reading as a quiet period,
+                  which is the one thing this axis must never imply. */}
+              {m && m.unknownPct > 0 && <div className="tl-unknown" style={{ width: `${m.unknownPct}%` }} />}
+              {blank && <div className="tl-unknown" style={{ width: "100%" }} />}
+
+              {m && (
+                <div className="tl-horizon" style={{ left: `${m.unknownPct}%` }} title={m.reason}>
+                  {/* A caption near the right edge would run off the track, so
+                      it flips to the other side of the rule. */}
+                  <span className="cap" style={m.unknownPct > 70 ? { left: "auto", right: 6 } : undefined}>
+                    {m.caption}
+                  </span>
+                </div>
+              )}
+
+              {gap && (
                 <span style={{
-                  position: "absolute", left: "var(--s3)", top: "50%",
+                  position: "absolute", left: "var(--s3)", top: "50%", zIndex: 4,
                   transform: "translateY(-50%)", fontSize: 11, color: "var(--fg-3)",
                 }}>
                   unavailable · {gap.reason}
                 </span>
-              ) : (
-                mine.map((e, i) => (
-                  <span
-                    key={`${e.at}-${i}`}
-                    className={`tl-mark ${lane.mark}`}
-                    style={{ left: `${position(e.at, s)}%` }}
-                    title={`${clock(e.at)} · ${e.title}${e.detail ? " · " + e.detail : ""}`}
-                  />
-                ))
               )}
+
+              {blank && (
+                <span style={{
+                  position: "absolute", left: "var(--s3)", top: "50%", zIndex: 4,
+                  transform: "translateY(-50%)", fontSize: 11, color: "var(--fg-3)",
+                }}>
+                  not known
+                </span>
+              )}
+
+              {!gap && mine.map((e, i) => (
+                <span
+                  key={`${e.at}-${i}`}
+                  className={`tl-mark ${lane.mark}`}
+                  style={{ left: `${position(e.at, s)}%` }}
+                  title={`${clock(e.at)} · ${e.title}${e.detail ? " · " + e.detail : ""}`}
+                />
+              ))}
             </div>
           </div>
         );

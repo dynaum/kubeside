@@ -104,3 +104,53 @@ export function clock(iso: string): string {
     ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
     : `${pad(d.getDate())} ${d.toLocaleString(undefined, { month: "short" })}`;
 }
+
+/** Marker is a horizon rendered on one lane: where knowledge ends, and why. */
+export interface Marker {
+  at: number;
+  /** caption is the short label on the axis; reason is the full sentence. */
+  caption: string;
+  reason: string;
+  /** unknownPct is how much of the lane, from the left, is not knowable. */
+  unknownPct: number;
+}
+
+// horizonSource maps a lane to the reconstruction source whose horizon bounds
+// it. A lane without one is bounded by nothing and says so differently.
+const LANE_HORIZON: Record<string, string[]> = {
+  deploy: ["replicaset", "controllerrevision"],
+  release: ["helm"],
+  health: ["session"],
+  restart: ["event"],
+};
+
+// caption is the short label the axis shows. The full reason travels in the
+// tooltip, because the axis has room for four words and the reason is a
+// sentence.
+function caption(h: TimelineHorizon): string {
+  if (h.source === "session") {
+    return h.pruned ? "session buffer evicted" : "kubeside started here";
+  }
+  if (h.source === "event") return "events expire";
+  return h.pruned ? "reconstruction ends" : "first revision";
+}
+
+// marker computes what to draw on one lane.
+//
+// The hatched region left of the marker is the point: an empty axis with
+// nothing on it reads as a quiet period, and a quiet period is the one thing
+// this axis must never imply when the truth is "not known".
+export function marker(horizons: TimelineHorizon[], lane: Lane, s: Span): Marker | null {
+  const sources = LANE_HORIZON[lane.key] ?? [];
+  const h = horizons.find((x) => sources.includes(x.source));
+  if (!h) return null;
+
+  const pct = position(h.at, s);
+  return { at: Date.parse(h.at), caption: caption(h), reason: h.reason, unknownPct: pct };
+}
+
+// A lane with no horizon and no entries is entirely unknown: nothing was read,
+// nothing is claimed. Hatching the whole track says that without a sentence.
+export function fullyUnknown(entries: TimelineEntry[], m: Marker | null): boolean {
+  return m === null && entries.length === 0;
+}

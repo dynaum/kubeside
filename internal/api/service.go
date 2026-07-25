@@ -32,6 +32,11 @@ type Service struct {
 	// timelines memoizes reconstruction, which reads several collections per
 	// call and is triggered by opening a screen.
 	timelines *memo[TimelineView]
+	// startedAt is when this process began watching. The timeline marks it
+	// whether or not anything has happened since: "we were watching and
+	// nothing changed" and "we have no idea" are different answers, and the
+	// screen must be able to tell them apart.
+	startedAt time.Time
 	// live holds what kubeside watched happen while it was running. It is
 	// merged with reconstruction rather than replacing it: one is what the
 	// cluster remembers, the other is what we saw.
@@ -51,6 +56,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 		cfg: cfg, mgr: mgr, conf: conf, opts: opts, timeout: timeout,
 		timelines: newMemo[TimelineView](memoTTL),
 		live:      session.New(session.Limits{}),
+		startedAt: time.Now(),
 	}
 }
 
@@ -207,9 +213,11 @@ func (s *Service) Timeline(contextName, namespace, workload string) (TimelineVie
 	// every call is what keeps a change that happened thirty seconds ago from
 	// waiting for a cache to expire.
 	view.Entries = session.Merge(view.Entries, s.live.Entries(key))
-	if h := s.live.Horizon(key); h != nil {
-		view.Horizons = append(append([]timeline.Horizon{}, view.Horizons...), *h)
-	}
+
+	// The session marker is mandatory. An app kubeside has watched all along
+	// without seeing a change still gets one, because an unmarked lane reads as
+	// "nothing is known" when the truth is "nothing happened".
+	view.Horizons = append(append([]timeline.Horizon{}, view.Horizons...), s.sessionHorizon(key))
 	return view, nil
 }
 
@@ -230,6 +238,20 @@ func (s *Service) Observed(contextName string, before, after AppView) {
 		Detail: after.Detail,
 		Source: "session",
 	})
+}
+
+// sessionHorizon is where this app's live history begins. The buffer answers
+// when it holds something; otherwise the answer is when kubeside started.
+func (s *Service) sessionHorizon(key string) timeline.Horizon {
+	if h := s.live.Horizon(key); h != nil {
+		return *h
+	}
+	return timeline.Horizon{
+		At:     s.startedAt,
+		Source: "session",
+		Pruned: false,
+		Reason: "kubeside started watching here; anything before this comes from the cluster's own history",
+	}
 }
 
 func sessionKey(contextName, namespace, workload string) string {

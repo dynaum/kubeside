@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { age, clock, laneEntries, LANES, position, span, ticks } from "./detail";
-import type { TimelineEntry } from "./api";
+import { age, clock, fullyUnknown, laneEntries, LANES, marker, position, span, ticks } from "./detail";
+import type { TimelineEntry, TimelineHorizon } from "./api";
 
 function entry(at: string, kind: string): TimelineEntry {
   return { at, kind, title: kind, source: "test" };
@@ -105,5 +105,67 @@ describe("age", () => {
 describe("clock", () => {
   it("survives a timestamp it cannot parse", () => {
     expect(clock("nonsense")).toBe("—");
+  });
+});
+
+describe("marker", () => {
+  const s = { from: Date.parse("2026-07-20T00:00:00Z"), to: NOW };
+
+  function horizon(source: string, at: string, pruned: boolean, reason = "because"): TimelineHorizon {
+    return { source, at, pruned, reason };
+  }
+
+  // Where reconstruction ran out, labeled with the cause. Mandatory, per the
+  // spec, and never decorative.
+  it("marks where reconstruction ends on the deploy lane", () => {
+    const m = marker([horizon("replicaset", "2026-07-22T00:00:00Z", true)], LANES[0], s);
+    expect(m?.caption).toBe("reconstruction ends");
+    expect(m?.unknownPct).toBeGreaterThan(0);
+    expect(m?.unknownPct).toBeLessThan(100);
+  });
+
+  // Nothing was pruned: this is the app's beginning, not a cut, and saying
+  // "reconstruction ends" would be a lie in the other direction.
+  it("distinguishes a first revision from a cut", () => {
+    const m = marker([horizon("replicaset", "2026-07-22T00:00:00Z", false)], LANES[0], s);
+    expect(m?.caption).toBe("first revision");
+  });
+
+  // The other mandatory marker.
+  it("marks where the session began", () => {
+    const m = marker([horizon("session", "2026-07-24T11:00:00Z", false)], LANES[2], s);
+    expect(m?.caption).toBe("kubeside started here");
+  });
+
+  it("says so when the session buffer evicted", () => {
+    const m = marker([horizon("session", "2026-07-24T11:00:00Z", true)], LANES[2], s);
+    expect(m?.caption).toBe("session buffer evicted");
+  });
+
+  it("names the apiserver TTL on the restart lane", () => {
+    const m = marker([horizon("event", "2026-07-24T11:00:00Z", true)], LANES[3], s);
+    expect(m?.caption).toBe("events expire");
+  });
+
+  it("keeps the full reason for the tooltip", () => {
+    const m = marker([horizon("replicaset", "2026-07-22T00:00:00Z", true, "pruned by revisionHistoryLimit")], LANES[0], s);
+    expect(m?.reason).toBe("pruned by revisionHistoryLimit");
+  });
+
+  it("has no marker for a lane whose source reported none", () => {
+    expect(marker([horizon("event", "2026-07-24T11:00:00Z", true)], LANES[0], s)).toBeNull();
+  });
+});
+
+describe("fullyUnknown", () => {
+  // A lane with no horizon and no entries knows nothing. Hatching the whole
+  // track says that; an empty line would claim a quiet period.
+  it("is true for a lane with no horizon and no entries", () => {
+    expect(fullyUnknown([], null)).toBe(true);
+  });
+
+  it("is false once anything is known", () => {
+    expect(fullyUnknown([entry("2026-07-24T10:00:00Z", "deploy")], null)).toBe(false);
+    expect(fullyUnknown([], { at: 0, caption: "c", reason: "r", unknownPct: 10 })).toBe(false);
   });
 });
