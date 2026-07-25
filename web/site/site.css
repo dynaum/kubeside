@@ -1,0 +1,308 @@
+/* The documentation site, built on the product's own tokens.
+ *
+ * Every colour, radius, spacing step and typeface here comes from tokens.css,
+ * the same file the application imports. The site therefore cannot drift into a
+ * second visual language: change a token and both move together. */
+
+body {
+  font-size: 14px;
+  line-height: 1.6;
+  height: auto;
+}
+
+a { color: var(--info); }
+a:hover { color: var(--focus); }
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s5);
+  padding: var(--s3) var(--s5);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--fg);
+  text-decoration: none;
+}
+.top-nav { display: flex; gap: var(--s5); }
+.top-nav a {
+  font-family: var(--font-cond);
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  text-decoration: none;
+}
+.top-nav a:hover { color: var(--fg); }
+
+/* Landing ---------------------------------------------------------------- */
+
+.landing { max-width: 1120px; margin: 0 auto; padding: var(--s8) var(--s5) var(--s7); }
+
+.hero h1 {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: clamp(28px, 5vw, 46px);
+  line-height: 1.12;
+  letter-spacing: -.01em;
+  margin: 0 0 var(--s4);
+}
+.lede {
+  max-width: 62ch;
+  font-size: 16px;
+  color: var(--fg-2);
+  margin: 0 0 var(--s5);
+}
+
+.qs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--s2) var(--s4);
+  margin: 0 0 var(--s6);
+  padding: var(--s4) 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+.q { display: flex; gap: var(--s3); align-items: baseline; color: var(--fg); }
+.q i {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 11px;
+  color: var(--fg-4);
+}
+
+.install { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+.cmd {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+}
+.cmd code::before { content: "$ "; color: var(--fg-4); }
+.note { flex: 1 1 320px; margin: 0; color: var(--fg-3); font-size: 13px; }
+.note code { color: var(--fg-2); }
+
+.shots { display: grid; gap: var(--s7); margin: var(--s8) 0; }
+.shot { margin: 0; }
+.shot img {
+  display: block;
+  width: 100%;
+  /* The baselines are full 1440x900 viewports and the screens are dense at the
+   * top. Showing the whole frame would give a reader more empty background
+   * than product, so the top of each is cropped in. */
+  /* height:auto is required: the img carries width/height attributes, and an
+   * explicit height would win over the ratio. */
+  height: auto;
+  aspect-ratio: 16 / 7;
+  object-fit: cover;
+  object-position: top left;
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  box-shadow: var(--shadow);
+  background: var(--surface);
+}
+.shot figcaption {
+  max-width: 74ch;
+  margin: var(--s3) 0 0;
+  color: var(--fg-2);
+  font-size: 13px;
+}
+.shot figcaption b {
+  display: block;
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--fg);
+  margin-bottom: var(--s1);
+}
+
+.claims {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s5);
+  margin: var(--s8) 0;
+}
+.claim {
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok);
+  border-radius: var(--r2);
+}
+.claim h2 {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.claim p { margin: 0; color: var(--fg-2); font-size: 13px; }
+
+.refuses {
+  margin: var(--s8) 0;
+  padding: var(--s5);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--env-prod);
+  border-radius: var(--r2);
+  background: var(--surface);
+}
+.refuses h2, .docs h2 {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.refuses p { margin: 0; max-width: 78ch; color: var(--fg-2); }
+
+.docs { margin: var(--s8) 0 0; }
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s3); }
+.doc-card {
+  display: block;
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color var(--t-base) var(--ease), background var(--t-base) var(--ease);
+}
+.doc-card:hover { border-color: var(--fg-4); background: var(--raised); color: var(--fg); }
+.doc-card b { font-family: var(--font-cond); font-weight: 600; font-size: 14px; }
+
+/* Documents -------------------------------------------------------------- */
+
+.doc {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  gap: var(--s7);
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--s6) var(--s5) var(--s8);
+  align-items: start;
+}
+.side { position: sticky; top: 64px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r2);
+  border-left: 2px solid transparent;
+  color: var(--fg-2);
+  text-decoration: none;
+  font-size: 13px;
+}
+.nav-item:hover { background: var(--surface); color: var(--fg); }
+.nav-item.on { background: var(--surface); border-left-color: var(--info); color: var(--fg); }
+
+.prose { max-width: 78ch; }
+.prose h1 {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 34px;
+  line-height: 1.15;
+  margin: 0 0 var(--s5);
+}
+.prose h2 {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 20px;
+  margin: var(--s7) 0 var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line-soft);
+}
+.prose h3 { font-size: 15px; margin: var(--s5) 0 var(--s2); }
+.prose h4 { font-size: 14px; color: var(--fg-2); margin: var(--s4) 0 var(--s2); }
+.prose p, .prose li { color: var(--fg-2); }
+.prose strong { color: var(--fg); font-weight: 600; }
+.prose ul, .prose ol { padding-left: var(--s5); }
+.prose li { margin: var(--s1) 0; }
+.prose blockquote {
+  margin: var(--s4) 0;
+  padding: var(--s2) var(--s4);
+  border-left: 3px solid var(--line);
+  color: var(--fg-3);
+}
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 1px 4px;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r1);
+  color: var(--fg);
+}
+.prose pre {
+  overflow-x: auto;
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+}
+.prose pre code { padding: 0; border: 0; background: none; font-size: 12.5px; line-height: 1.55; }
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--s4) 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+.prose th, .prose td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.prose th {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  border-bottom-color: var(--line);
+  white-space: nowrap;
+}
+.prose td { color: var(--fg-2); }
+.prose hr { border: 0; border-top: 1px solid var(--line); margin: var(--s6) 0; }
+
+/* Footer ----------------------------------------------------------------- */
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s5);
+  justify-content: space-between;
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--line);
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.foot a { color: var(--fg-3); text-decoration: none; }
+.foot a:hover { color: var(--fg-2); }
+
+@media (max-width: 860px) {
+  .doc { grid-template-columns: minmax(0, 1fr); gap: var(--s5); }
+  .side { position: static; flex-direction: row; flex-wrap: wrap; }
+  .landing { padding-top: var(--s6); }
+}

@@ -1,0 +1,59 @@
+name: pages
+
+# The site is generated from docs/ and from the screenshots the visual gate
+# already owns, so it cannot describe a product that no longer exists without
+# failing a test first. Publishing follows main; nothing here is hand-edited.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'web/site/**'
+      - 'web/src/tokens.css'
+      - 'web/e2e/screens.spec.ts-snapshots/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A second push while a deploy is running replaces it rather than queueing a
+# stale one behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm --prefix web ci
+      # The build's own tests check that every document became a page and that
+      # no internal link points at nothing. A site with a dead link is not
+      # published.
+      - name: Test
+        run: npm --prefix web run test
+      - name: Build the site
+        run: npm --prefix web run site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/site-dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

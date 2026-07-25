@@ -14,7 +14,12 @@ Across qa, stg, and prod side by side.
 
 ## Status
 
-Design stage. No code yet. Documentation first.
+Feature-complete for v1.0 and unreleased. Everything below is built, tested, and
+has been driven against real clusters: the app list, whole-workload logs, the
+reconstructed timeline, resolved configuration, cross-environment diff, the
+promotion matrix, port-forward, the command palette, prod guardrails, and exec.
+No version is tagged yet, so the install lines below start working with the
+first release.
 
 ## Why another one
 
@@ -36,7 +41,14 @@ Or download a binary for macOS, Linux, or Windows from the
 [releases page](https://github.com/dynaum/kubeside/releases). One file, no
 runtime, no installer. The UI is embedded in the binary.
 
-## Planned shape
+Until the first release is tagged, build it:
+
+```
+npm --prefix web ci && npm --prefix web run build   # the UI is embedded, so it goes first
+go build ./cmd/kubeside && ./kubeside
+```
+
+## Shape
 
 ```
 kubeside            # local mode: starts server, opens http://localhost:7654
@@ -66,6 +78,9 @@ runs. Stop the server and nothing is left behind.
 | [04-multi-cluster.md](docs/04-multi-cluster.md) | Environments, promotion view, cross-env config diff, prod guardrails |
 | [05-architecture.md](docs/05-architecture.md) | Stack, data flow, storage, auth, performance budget |
 | [06-roadmap.md](docs/06-roadmap.md) | Milestones and what ships in each |
+
+The same documents are rendered as a site by `npm --prefix web run site`, and
+published from `main` by the `pages` workflow.
 
 ## License
 

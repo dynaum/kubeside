@@ -20,3 +20,6 @@ web/playwright-report/
 .env.local
 web/tsconfig.tsbuildinfo
 HANDOFF.md
+
+# The docs site is generated from docs/ and the visual baselines.
+web/site-dist/

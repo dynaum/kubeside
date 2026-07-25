@@ -1,0 +1,10 @@
+<!-- The environment edge from the design system: a surface with one coloured
+     stripe on its left, which is how every environment is marked in the
+     product. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="5" fill="#101619"/>
+  <rect x="4" y="4" width="4" height="24" rx="1" fill="#1FA093"/>
+  <rect x="12" y="7" width="16" height="3" rx="1.5" fill="#DEE7EA"/>
+  <rect x="12" y="14.5" width="12" height="3" rx="1.5" fill="#8B9BA3"/>
+  <rect x="12" y="22" width="16" height="3" rx="1.5" fill="#5A6C74"/>
+</svg>
