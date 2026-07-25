@@ -51,6 +51,9 @@ export function AppsScreen({
         {view && <ScopeNote view={view} />}
         <span className="spacer" />
         <LiveDot liveness={liveness} />
+        <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+          <span className="kbd">⌘</span> <span className="kbd">K</span>
+        </span>
         <input
           className="field"
           placeholder="filter"

@@ -8,11 +8,26 @@ import { ConfigScreen } from "./ConfigScreen";
 import { DiffScreen } from "./DiffScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
+import { Palette } from "./Palette";
 
 export function App() {
   const [contexts, setContexts] = useState<ContextView[] | null>(null);
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   const [err, setErr] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
+
+  // cmd+k is the reflex somebody arrives with. Ctrl+k is the same reflex on a
+  // keyboard without a command key.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // The hash is the source of truth for what is on screen, so the browser's
   // back button and a pasted permalink both work without a router.
@@ -74,7 +89,15 @@ export function App() {
   const current = contexts.find((c) => c.name === route.context) ?? null;
 
   return (
-    <div className="shell" data-env={current ? envToken(current) : "unc"}>
+    <div className="shell" data-env={current ? envToken(current) : "unc"} style={{ position: "relative" }}>
+      <Palette
+        open={palette}
+        contexts={contexts}
+        current={current}
+        route={route}
+        onClose={() => setPalette(false)}
+        onRun={go}
+      />
       <Rail
         contexts={contexts}
         selected={current?.name ?? null}
