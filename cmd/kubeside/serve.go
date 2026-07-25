@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,12 @@ func serveUI(out io.Writer, cfg *kubeconfig.Config, mgr *clusters.Manager, opts 
 	svc := api.NewService(cfg, mgr, opts, conf, timeout)
 	// No tunnel outlives the process that opened it.
 	defer svc.Close()
+
+	// Idle connections are dropped while the server runs, so a laptop that
+	// opened six environments this morning is not still watching six.
+	janitor, stopJanitor := context.WithCancel(context.Background())
+	defer stopJanitor()
+	svc.StartJanitor(janitor)
 
 	ui, built := web.FS()
 	if !built {

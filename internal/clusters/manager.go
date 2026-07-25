@@ -39,6 +39,7 @@ type conn struct {
 	kctx kubeconfig.Context
 
 	mu         sync.Mutex
+	tier       Tier
 	state      State
 	lastLive   time.Time
 	lastErr    error
@@ -177,6 +178,32 @@ func (m *Manager) backoff(failures int) time.Duration {
 	return d
 }
 
+// Tier reports how much of a context is worth reading right now.
+func (m *Manager) Tier(name string) Tier {
+	c, ok := m.conn(name)
+	if !ok {
+		return TierBackground
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tier
+}
+
+// SetTier moves a context between tiers. Attention is what promotes one: the
+// environment a tab is watching is active, and everything else is background.
+func (m *Manager) SetTier(name string, tier Tier) {
+	if c, ok := m.conn(name); ok {
+		c.mu.Lock()
+		c.tier = tier
+		if tier == TierActive && c.state == StateLive {
+			// Being watched is being used, so promotion defers the idle clock
+			// as much as a read does.
+			c.lastLive = m.clock.Now()
+		}
+		c.mu.Unlock()
+	}
+}
+
 // Touch marks a context as in use, which defers its idle disconnect.
 func (m *Manager) Touch(name string) {
 	if c, ok := m.conn(name); ok {
@@ -186,6 +213,33 @@ func (m *Manager) Touch(name string) {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// Untouched returns the live contexts nobody has read for longer than d.
+//
+// It is how a context falls back from active to background: attention promotes,
+// and the absence of attention demotes, without anything having to announce
+// that a tab closed.
+func (m *Manager) Untouched(d time.Duration) []string {
+	now := m.clock.Now()
+
+	m.mu.RLock()
+	all := make([]*conn, 0, len(m.conns))
+	for _, c := range m.conns {
+		all = append(all, c)
+	}
+	m.mu.RUnlock()
+
+	var out []string
+	for _, c := range all {
+		c.mu.Lock()
+		if c.state == StateLive && c.tier == TierActive && now.Sub(c.lastLive) >= d {
+			out = append(out, c.kctx.Name)
+		}
+		c.mu.Unlock()
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ReapIdle drops informers for live connections untouched beyond the idle

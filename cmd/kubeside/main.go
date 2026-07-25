@@ -184,7 +184,7 @@ func gather(ctx context.Context, mgr *clusters.Manager, cfg *kubeconfig.Config, 
 			var r result
 			if r.err = mgr.Connect(cctx, kctx.Name); r.err == nil {
 				if client, ok := mgr.ClientFor(kctx.Name); ok {
-					r.snap, r.err = clusters.Fetch(cctx, client, kctx)
+					r.snap, r.err = clusters.Fetch(cctx, client, kctx, clusters.FetchOptions{Tier: clusters.TierActive})
 				}
 			}
 

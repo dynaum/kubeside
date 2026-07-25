@@ -34,7 +34,7 @@ func TestFetchGroupsClusterWide(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a"}},
 	)
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestFetchFallsBackWhenNamespaceListForbidden(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
 	})
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod", Namespace: "team-a"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod", Namespace: "team-a"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("a forbidden namespace list must not fail the fetch: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestFetchWithNoContextNamespaceUsesDefault(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
 	})
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestPartialReadIsRecordedNotFatal(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", nil)
 	})
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "prod"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestOwnerReferencesSurviveTheAdapter(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}},
 	)
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestNonControllerOwnerRefIsNotTreatedAsController(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}},
 	)
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestStatusReachesHealthDerivation(t *testing.T) {
 		},
 	)
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestCrashLoopingPodReachesHealthDerivation(t *testing.T) {
 		},
 	)
 
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestUnsetReplicasDefaultsToOne(t *testing.T) {
 			Status:     appsv1.DeploymentStatus{ReadyReplicas: 0},
 		},
 	)
-	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"})
+	snap, err := Fetch(context.Background(), c, kubeconfig.Context{Name: "qa"}, FetchOptions{Tier: TierActive})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -50,6 +51,10 @@ type Service struct {
 	// nothing changed" and "we have no idea" are different answers, and the
 	// screen must be able to tell them apart.
 	startedAt time.Time
+	// snaps retains the last successful read per context, which is what a
+	// stale connection renders instead of an empty cluster.
+	snapsMu sync.Mutex
+	snaps   map[string]clusters.Snapshot
 	// perms answers what this reader may do, per context, cached for the
 	// session. Every disabled control in the UI is disabled because a cluster
 	// said so.
@@ -77,6 +82,7 @@ func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.O
 		timelines: newMemo[TimelineView](memoTTL),
 		live:      session.New(session.Limits{}),
 		startedAt: time.Now(),
+		snaps:     map[string]clusters.Snapshot{},
 		perms:     rbac.New(rbac.KubeReviewer{ClientFor: mgr.ClientFor}),
 		forwards: forward.New(forward.KubeTunnel{
 			RESTConfig: func(contextName string) (*rest.Config, error) {
@@ -129,6 +135,8 @@ func (s *Service) Apps(name string) (AppsView, error) {
 	defer cancel()
 
 	connErr := s.mgr.Connect(ctx, name)
+	s.mgr.SetTier(name, clusters.TierActive)
+	s.mgr.Touch(name)
 	st, _ := s.mgr.Status(name)
 
 	if !st.State.HasData() {
@@ -139,16 +147,44 @@ func (s *Service) Apps(name string) (AppsView, error) {
 		return view, nil
 	}
 
+	// An idle-reaped context keeps its last snapshot, which renders with its
+	// state rather than as an empty cluster.
+	if st.State == clusters.StateStale {
+		if last, ok := s.lastSnapshot(name); ok {
+			return AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name)), nil
+		}
+	}
+
 	client, ok := s.mgr.ClientFor(name)
 	if !ok {
 		return AppsView{Context: name, State: st.State.String(), Apps: []AppView{}}, nil
 	}
 
-	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(name))
+	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(name), clusters.FetchOptions{Tier: clusters.TierActive})
 	if err != nil {
+		// A failed read does not erase what was last known. The old answer with
+		// its state beats an empty one.
+		if last, ok := s.lastSnapshot(name); ok {
+			view := AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name))
+			view.Error = err.Error()
+			return view, nil
+		}
 		return AppsView{Context: name, State: st.State.String(), Error: err.Error(), Apps: []AppView{}}, nil
 	}
 
+	// A read where every kind failed produces an empty list that is
+	// indistinguishable from an empty cluster. What was last known beats that,
+	// with the failures named.
+	if len(snap.Apps) == 0 && len(snap.Partial) > 0 {
+		if last, ok := s.lastSnapshot(name); ok {
+			view := AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name))
+			view.Partial = snap.Partial
+			view.Reason = "nothing could be read just now; showing what was last known"
+			return view, nil
+		}
+	}
+
+	s.remember(name, snap)
 	return AppsFromSnapshot(snap, st.State.String(), s.metricsInfo(ctx, name)), nil
 }
 
@@ -326,7 +362,7 @@ func (s *Service) appOf(ctx context.Context, contextName, namespace, workload st
 	if !ok {
 		return apps.App{}, fmt.Errorf("context %q is not connected", contextName)
 	}
-	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(contextName))
+	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(contextName), clusters.FetchOptions{Tier: clusters.TierActive})
 	if err != nil {
 		return apps.App{}, err
 	}
@@ -858,7 +894,7 @@ func (s *Service) Promotion() PromotionView {
 			continue
 		}
 
-		snap, err := clusters.Fetch(ctx, client, kctx)
+		snap, err := clusters.Fetch(ctx, client, kctx, clusters.FetchOptions{Tier: s.mgr.Tier(name)})
 		if err != nil {
 			unreachable = append(unreachable, env.Name)
 			continue
@@ -978,3 +1014,69 @@ func (s *Service) Capabilities(contextName, namespace string) CapabilitiesView {
 	out.Can = s.perms.CanAll(ctx, contextName, actions)
 	return out
 }
+
+// Snapshot retention. kubeside writes nothing to disk, so "retained" means one
+// snapshot per context in memory, replaced on every successful read and dropped
+// with the process.
+func (s *Service) remember(contextName string, snap clusters.Snapshot) {
+	s.snapsMu.Lock()
+	defer s.snapsMu.Unlock()
+	s.snaps[contextName] = snap
+}
+
+func (s *Service) lastSnapshot(contextName string) (clusters.Snapshot, bool) {
+	s.snapsMu.Lock()
+	defer s.snapsMu.Unlock()
+	snap, ok := s.snaps[contextName]
+	return snap, ok
+}
+
+// Reap drops connections nobody has looked at, which is the idle tier.
+//
+// The connection goes; the snapshot stays. A context that has been idle for
+// fifteen minutes renders its last known answer labelled with its age, which is
+// a different thing from a context nothing is known about.
+func (s *Service) Reap() []string {
+	// Demote before reaping: an environment nobody has looked at for a couple
+	// of minutes is background, and only after the full idle window does it
+	// lose its connection entirely.
+	for _, name := range s.mgr.Untouched(activeWindow) {
+		s.mgr.SetTier(name, clusters.TierBackground)
+	}
+
+	reaped := s.mgr.ReapIdle()
+	for _, name := range reaped {
+		s.mgr.SetTier(name, clusters.TierBackground)
+		// New credentials on reconnect can mean different permissions.
+		s.perms.Forget(name)
+	}
+	return reaped
+}
+
+// StartJanitor reaps idle connections until ctx is cancelled. Nothing else in
+// the process is on a timer: attention drives everything, and this is what
+// notices the absence of attention.
+func (s *Service) StartJanitor(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(janitorInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.Reap()
+			}
+		}
+	}()
+}
+
+// janitorInterval is how often idleness is checked. Far shorter than the idle
+// window itself, so a context is reaped near when it should be rather than up
+// to a window late.
+const janitorInterval = time.Minute
+
+// activeWindow is how long a context stays active after the last read. Long
+// enough to survive a developer reading a screen, short enough that a window
+// left open on a stale tab stops costing pod reads.
+const activeWindow = 2 * time.Minute

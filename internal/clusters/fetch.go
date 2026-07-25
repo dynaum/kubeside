@@ -102,11 +102,41 @@ func (m *Manager) ClientFor(name string) (kubernetes.Interface, bool) {
 	return cs.client, true
 }
 
+// Tier is how much of a cluster is worth reading right now.
+type Tier int
+
+const (
+	// TierBackground is an environment nobody is looking at. It contributes to
+	// the promotion matrix, which needs versions rather than per-replica
+	// health, so its pods go unread.
+	TierBackground Tier = iota
+	// TierActive is the environment on screen: everything health is derived
+	// from, pods included.
+	TierActive
+)
+
+func (t Tier) String() string {
+	if t == TierActive {
+		return "active"
+	}
+	return "background"
+}
+
+// FetchOptions controls how much is read.
+type FetchOptions struct {
+	Tier Tier
+}
+
 // Fetch lists workloads for one connected context and groups them.
 //
 // Errors on individual kinds are recorded rather than fatal: a developer who
 // can read Deployments but not CronJobs should still see their Deployments.
-func Fetch(ctx context.Context, c kubernetes.Interface, kctx kubeconfig.Context) (Snapshot, error) {
+//
+// The tier decides how much is read. Pods are the most expensive collection in
+// any real cluster and the one only the active environment needs, so a
+// background read skips them and says so rather than implying those apps have
+// no replicas.
+func Fetch(ctx context.Context, c kubernetes.Interface, kctx kubeconfig.Context, opts FetchOptions) (Snapshot, error) {
 	snap := Snapshot{Context: kctx.Name}
 	snap.Scope = discoverScope(ctx, c, kctx)
 
@@ -120,7 +150,7 @@ func Fetch(ctx context.Context, c kubernetes.Interface, kctx kubeconfig.Context)
 
 	var objs []apps.Object
 	for _, ns := range targets {
-		got, partial := listNamespace(ctx, c, ns)
+		got, partial := listNamespace(ctx, c, ns, opts.Tier)
 		objs = append(objs, got...)
 		snap.Partial = append(snap.Partial, partial...)
 	}
@@ -150,7 +180,7 @@ func fallbackScope(kctx kubeconfig.Context, reason string) Scope {
 	return Scope{Namespaces: []string{ns}, Reason: reason}
 }
 
-func listNamespace(ctx context.Context, c kubernetes.Interface, ns string) ([]apps.Object, []string) {
+func listNamespace(ctx context.Context, c kubernetes.Interface, ns string, tier Tier) ([]apps.Object, []string) {
 	var out []apps.Object
 	var partial []string
 	opts := metav1.ListOptions{}
@@ -259,7 +289,11 @@ func listNamespace(ctx context.Context, c kubernetes.Interface, ns string) ([]ap
 		partial = append(partial, "ReplicaSet")
 	}
 
-	if l, err := c.CoreV1().Pods(ns).List(ctx, opts); err == nil {
+	if tier != TierActive {
+		// Deliberately unread, and named as unread: an app with no pods listed
+		// must not look like an app with no pods running.
+		partial = append(partial, "Pod")
+	} else if l, err := c.CoreV1().Pods(ns).List(ctx, opts); err == nil {
 		for i := range l.Items {
 			p := &l.Items[i]
 			o := fromMeta("Pod", &p.ObjectMeta)

@@ -66,6 +66,22 @@ Watch tiers, per [04-multi-cluster.md](04-multi-cluster.md):
 | Background | Deployments, StatefulSets, DaemonSets, Events | Other environments in the promotion view |
 | Idle | None, cache retained | No view referenced for 15 minutes |
 
+Tiers move on attention alone. Reading an environment promotes it to active;
+two minutes without a read demotes it to background; fifteen drops the
+connection and keeps the snapshot. Nothing announces that a tab closed, because
+nothing has to: the absence of reads is the signal.
+
+Until informers land, "active" means the read includes pods and "background"
+means it does not. Pods are the most expensive collection in any real cluster
+and the one only the environment on screen needs, so a background read skips
+them and names them as unread rather than implying those apps have no replicas.
+
+A read where every kind failed produces an empty list indistinguishable from an
+empty cluster, so it does not replace what was last known: the previous snapshot
+renders with the failures named. Reaping drops the connection and the cached
+permissions, since new credentials on reconnect can mean different answers, but
+never the snapshot.
+
 Secrets use a metadata-only informer. Values are fetched on demand, per key, with
 an explicit permission check. Secret values never enter the watch cache.
 
