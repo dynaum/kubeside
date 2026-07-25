@@ -7,8 +7,8 @@
 A Kubernetes client scoped to the developer who ships the app, not the operator
 who runs the cluster. One binary, no database, no agent, no setup step.
 
-[Documentation](https://dynaum.github.io/kubeside/) ·
-[Install](https://dynaum.github.io/kubeside/docs/01-install.html) ·
+[Documentation](https://dynaum.com/kubeside/) ·
+[Install](https://dynaum.com/kubeside/docs/01-install.html) ·
 [Why it exists](docs/01-problem.md)
 
 ![kubeside walkthrough](docs/images/walkthrough.gif)
@@ -164,7 +164,7 @@ so the Homebrew line above starts working with the first release.
 ## Documentation
 
 The full site is at
-**[dynaum.github.io/kubeside](https://dynaum.github.io/kubeside/)**.
+**[dynaum.com/kubeside](https://dynaum.com/kubeside/)**.
 
 **Guide** — [install and run](docs/guide/01-install.md) ·
 [first run](docs/guide/02-first-run.md) ·

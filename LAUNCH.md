@@ -9,7 +9,7 @@ Drafts below; nothing has been posted.
 
 Pages is enabled with GitHub Actions as its source, and `PAGES_ENABLED` is set,
 so every push to `main` that touches the docs rebuilds and republishes
-`https://dynaum.github.io/kubeside/`.
+`https://dynaum.com/kubeside/`.
 
 To publish without waiting for a push:
 
