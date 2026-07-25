@@ -222,6 +222,23 @@ Log streams multiplex on the same websocket, tagged per pod, with a server-side
 ring buffer of 10k lines per workload and backpressure toward the client so a
 chatty deployment cannot freeze a tab.
 
+The unit is the workload: every replica is merged into one time-ordered stream,
+and per-pod is a filter on that stream rather than a second way in. Lines are
+batched before they reach the wire, since a workload emitting thousands of lines
+a second must not cost one frame per line. The ring counts what it drops, and
+that count travels with every batch: a buffer that quietly loses lines makes a
+chatty workload look calm.
+
+Which pods back a workload comes from the grouping engine, re-read on a timer,
+which is how a rollout's new replicas join a stream already on screen. A label
+selector would be a second answer that disagrees with the engine on exactly the
+workloads where grouping was hard.
+
+Availability edges travel with the lines: where a stream begins, that
+previous-container output reaches exactly one restart back, that a pod left the
+workload, and that a container stopped rather than went quiet. A gap the tool
+cannot explain is a gap the developer will misread as silence.
+
 ### Kubeconfig
 
 kubeside reads the developer's existing kubeconfig. No import step, no separate

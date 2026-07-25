@@ -8,6 +8,7 @@ import (
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
+	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
@@ -125,4 +126,63 @@ func (s *Service) metricsInfo(ctx context.Context, name string) MetricsInfo {
 	}
 	src := metrics.Probe(client.Discovery(), mc, "")
 	return MetricsInfo{Source: src.Name(), Available: src.Available(), Reason: src.Unavailable()}
+}
+
+// LogSource opens the log side of one workload.
+//
+// The pod set comes from the grouping engine, not a label selector: the engine
+// already decided which pods are this app, and a selector would be a second
+// answer that disagrees on exactly the workloads that need it most.
+func (s *Service) LogSource(contextName, namespace, workload string) (logs.Source, error) {
+	if _, ok := s.cfg.Get(contextName); !ok {
+		return nil, errUnknownContext(contextName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return nil, err
+	}
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return nil, fmt.Errorf("context %q is not connected", contextName)
+	}
+
+	return logs.KubeSource{
+		Client:    client,
+		Namespace: namespace,
+		PodNames: func(ctx context.Context) ([]string, error) {
+			return s.podsOf(ctx, contextName, namespace, workload)
+		},
+	}, nil
+}
+
+// podsOf resolves the pods currently backing a workload.
+//
+// It re-reads the cluster rather than trusting a list captured at subscribe
+// time, which is what lets a rollout's new replicas join a stream already on
+// screen. The read is a full snapshot today; informer-backed watches (#23)
+// make it cheap without changing this contract.
+func (s *Service) podsOf(ctx context.Context, contextName, namespace, workload string) ([]string, error) {
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return nil, fmt.Errorf("context %q is not connected", contextName)
+	}
+	snap, err := clusters.Fetch(ctx, client, s.cfg.MustGet(contextName))
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range snap.Apps {
+		if a.Key.Namespace != namespace || a.Key.Name != workload {
+			continue
+		}
+		var pods []string
+		for _, w := range a.Workloads {
+			if w.Kind == "Pod" {
+				pods = append(pods, w.Name)
+			}
+		}
+		return pods, nil
+	}
+	return nil, fmt.Errorf("no workload %q in namespace %q of context %q", workload, namespace, contextName)
 }

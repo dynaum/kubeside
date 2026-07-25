@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/dynaum/kubeside/internal/logs"
 )
 
 // The live path. One websocket per browser tab; one poller per watched view,
@@ -43,6 +44,11 @@ const (
 
 	// readLimit caps a client message. Subscriptions are a few dozen bytes.
 	readLimit = 32 * 1024
+
+	// maxLogFlush is the longest a merged log line waits for its batch. Short
+	// enough that follow mode reads as live, long enough that a chatty
+	// workload does not send one frame per line.
+	maxLogFlush = 200 * time.Millisecond
 )
 
 // subscriber is one tab's outbound queue.
@@ -101,42 +107,48 @@ type hub struct {
 	api      API
 	interval time.Duration
 
-	mu    sync.Mutex
-	feeds map[string]*feed
+	mu       sync.Mutex
+	feeds    map[string]*feed
+	logFeeds map[string]*logFeed
 }
 
 func newHub(a API, interval time.Duration) *hub {
 	if interval <= 0 {
 		interval = DefaultPollInterval
 	}
-	return &hub{api: a, interval: interval, feeds: map[string]*feed{}}
+	return &hub{api: a, interval: interval, feeds: map[string]*feed{}, logFeeds: map[string]*logFeed{}}
 }
 
-func feedKey(view, context string) string { return view + "|" + context }
-
-// subscribe attaches a tab to a view, starting the poller if this is the first
-// watcher. A subscriber that arrives mid-stream gets the current snapshot
+// subscribe attaches a tab to a view, starting the reader if this is the first
+// watcher. A subscriber that arrives mid-stream gets the current state
 // immediately, so a second tab does not stare at nothing until the next poll.
-func (h *hub) subscribe(view, contextName string, s *subscriber) error {
-	if view != ViewApps {
-		return fmt.Errorf("unknown view %q", view)
+func (h *hub) subscribe(m ClientMessage, s *subscriber) error {
+	if m.Context == "" {
+		return fmt.Errorf("subscribe to %s requires a context", m.View)
 	}
-	if contextName == "" {
-		return fmt.Errorf("subscribe to %s requires a context", view)
+	switch m.View {
+	case ViewApps:
+		return h.subscribeApps(m, s)
+	case ViewLogs:
+		return h.subscribeLogs(m, s)
+	default:
+		return fmt.Errorf("unknown view %q", m.View)
 	}
+}
 
+func (h *hub) subscribeApps(m ClientMessage, s *subscriber) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	key := feedKey(view, contextName)
+	key := m.subscriptionKey()
 	f, ok := h.feeds[key]
 	if !ok {
 		ctx, cancel := context.WithCancel(context.Background())
 		f = &feed{
 			hub:     h,
 			key:     key,
-			view:    view,
-			context: contextName,
+			view:    m.View,
+			context: m.Context,
 			cancel:  cancel,
 			subs:    map[*subscriber]struct{}{},
 		}
@@ -148,24 +160,33 @@ func (h *hub) subscribe(view, contextName string, s *subscriber) error {
 	f.mu.Lock()
 	if f.has {
 		snap := f.last
-		s.send(ServerMessage{Type: msgSnapshot, View: view, Context: contextName, Seq: f.seq, Snapshot: &snap})
+		s.send(ServerMessage{Type: msgSnapshot, View: m.View, Context: m.Context, Seq: f.seq, Snapshot: &snap})
 	}
 	f.mu.Unlock()
 	return nil
 }
 
-// unsubscribe detaches a tab, stopping the poller when the last one leaves.
-func (h *hub) unsubscribe(view, contextName string, s *subscriber) {
+// unsubscribe detaches a tab, stopping the reader when the last one leaves.
+func (h *hub) unsubscribe(m ClientMessage, s *subscriber) {
+	key := m.subscriptionKey()
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	f, ok := h.feeds[feedKey(view, contextName)]
-	if !ok {
+
+	if f, ok := h.feeds[key]; ok {
+		delete(f.subs, s)
+		if len(f.subs) == 0 {
+			delete(h.feeds, f.key)
+			f.cancel()
+		}
 		return
 	}
-	delete(f.subs, s)
-	if len(f.subs) == 0 {
-		delete(h.feeds, f.key)
-		f.cancel()
+	if lf, ok := h.logFeeds[key]; ok {
+		delete(lf.subs, s)
+		if len(lf.subs) == 0 {
+			delete(h.logFeeds, lf.key)
+			lf.cancel()
+		}
 	}
 }
 
@@ -179,6 +200,35 @@ func (h *hub) subscribers(f *feed) []*subscriber {
 		out = append(out, s)
 	}
 	return out
+}
+
+func (h *hub) logSubscribers(f *logFeed) []*subscriber {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]*subscriber, 0, len(f.subs))
+	for s := range f.subs {
+		out = append(out, s)
+	}
+	return out
+}
+
+// flushInterval batches log lines. A workload emitting thousands of lines a
+// second must not cost one websocket frame per line.
+func (h *hub) flushInterval() time.Duration {
+	if h.interval < maxLogFlush {
+		return h.interval
+	}
+	return maxLogFlush
+}
+
+// logRefresh is how often a log feed re-reads which pods back the workload.
+// Slower than the apps poll: a rollout takes longer than a few seconds, and
+// this read is a full snapshot until informers land.
+func (h *hub) logRefresh() time.Duration {
+	if h.interval < logs.DefaultRefresh {
+		return h.interval
+	}
+	return logs.DefaultRefresh
 }
 
 // stop tears a feed down and forgets it, so a later subscription starts clean.
@@ -296,17 +346,17 @@ func (c *streamConn) read(ctx context.Context) {
 		}
 		switch m.Type {
 		case msgSubscribe:
-			if err := c.hub.subscribe(m.View, m.Context, c.sub); err != nil {
+			if err := c.hub.subscribe(m, c.sub); err != nil {
 				c.sub.send(ServerMessage{Type: msgError, View: m.View, Context: m.Context, Message: err.Error()})
 				continue
 			}
 			c.mu.Lock()
-			c.held[feedKey(m.View, m.Context)] = m
+			c.held[m.subscriptionKey()] = m
 			c.mu.Unlock()
 		case msgUnsubscribe:
-			c.hub.unsubscribe(m.View, m.Context, c.sub)
+			c.hub.unsubscribe(m, c.sub)
 			c.mu.Lock()
-			delete(c.held, feedKey(m.View, m.Context))
+			delete(c.held, m.subscriptionKey())
 			c.mu.Unlock()
 		default:
 			c.sub.send(ServerMessage{Type: msgError, Message: fmt.Sprintf("unknown message type %q", m.Type)})
@@ -359,6 +409,6 @@ func (c *streamConn) detachAll() {
 	c.mu.Unlock()
 
 	for _, m := range held {
-		c.hub.unsubscribe(m.View, m.Context, c.sub)
+		c.hub.unsubscribe(m, c.sub)
 	}
 }

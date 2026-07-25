@@ -12,15 +12,25 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/dynaum/kubeside/internal/logs"
 )
 
 // streamStub is a mutable API whose app list a test can change between polls,
 // standing in for a cluster where something happened.
 type streamStub struct {
-	mu    sync.Mutex
-	view  AppsView
-	err   error
-	calls int
+	mu        sync.Mutex
+	view      AppsView
+	err       error
+	calls     int
+	logSource logs.Source
+	logErr    error
+}
+
+func (s *streamStub) LogSource(_, _, _ string) (logs.Source, error) {
+	if s.logErr != nil {
+		return nil, s.logErr
+	}
+	return s.logSource, nil
 }
 
 func (s *streamStub) Contexts() []ContextView {

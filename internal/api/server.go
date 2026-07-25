@@ -25,6 +25,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/dynaum/kubeside/internal/logs"
 )
 
 // tokenParam is the query parameter carrying the session token.
@@ -48,6 +50,10 @@ type Server struct {
 type API interface {
 	Contexts() []ContextView
 	Apps(context string) (AppsView, error)
+	// LogSource opens the log side of one workload. It is separate from Apps
+	// because a log stream outlives a single read: the transport keeps it for
+	// as long as a window is watching.
+	LogSource(contextName, namespace, workload string) (logs.Source, error)
 }
 
 // Option configures a Server.

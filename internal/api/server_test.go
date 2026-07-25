@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/dynaum/kubeside/internal/logs"
 )
 
 type stubAPI struct {
@@ -15,6 +17,10 @@ type stubAPI struct {
 }
 
 func (s stubAPI) Contexts() []ContextView { return s.contexts }
+
+func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
+	return nil, errors.New("no log source in this test")
+}
 
 func (s stubAPI) Apps(name string) (AppsView, error) {
 	v, ok := s.apps[name]

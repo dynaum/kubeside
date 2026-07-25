@@ -1,6 +1,13 @@
 package api
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/dynaum/kubeside/internal/logs"
+)
 
 // The delta protocol. The browser subscribes to a view; the server answers with
 // one snapshot and then patches for as long as the subscription lives. The
@@ -12,7 +19,10 @@ import "slices"
 // Views the stream can serve. Anything else is refused by name rather than
 // silently ignored, so a client bug surfaces as an error instead of a screen
 // that never updates.
-const ViewApps = "apps"
+const (
+	ViewApps = "apps"
+	ViewLogs = "logs"
+)
 
 // Client to server.
 const (
@@ -24,15 +34,43 @@ const (
 const (
 	msgSnapshot = "snapshot"
 	msgPatch    = "patch"
+	msgLogs     = "logs"
 	msgError    = "error"
 )
 
-// ClientMessage is what the browser sends. Both fields are required for both
-// message types: a subscription is identified by the pair.
+// ClientMessage is what the browser sends. Type, View, and Context are always
+// required; the rest identify and shape a logs subscription.
+//
+// Every field that changes what a subscription reads is part of its identity,
+// so one window revealing sidecars cannot change what another window sees.
 type ClientMessage struct {
 	Type    string `json:"type"`
 	View    string `json:"view"`
 	Context string `json:"context"`
+
+	Namespace string `json:"namespace,omitempty"`
+	Workload  string `json:"workload,omitempty"`
+
+	Pods            []string `json:"pods,omitempty"`
+	Containers      []string `json:"containers,omitempty"`
+	IncludeSidecars bool     `json:"includeSidecars,omitempty"`
+	IncludeInit     bool     `json:"includeInit,omitempty"`
+	Previous        bool     `json:"previous,omitempty"`
+	Tail            int64    `json:"tail,omitempty"`
+}
+
+// subscriptionKey is the identity of one subscription. Two clients asking for
+// the same thing share a feed; asking for anything different does not.
+func (m ClientMessage) subscriptionKey() string {
+	if m.View != ViewLogs {
+		return m.View + "|" + m.Context
+	}
+	var b strings.Builder
+	b.WriteString(m.View + "|" + m.Context + "|" + m.Namespace + "/" + m.Workload)
+	b.WriteString("|pods=" + strings.Join(m.Pods, ","))
+	b.WriteString("|containers=" + strings.Join(m.Containers, ","))
+	fmt.Fprintf(&b, "|sidecars=%t|init=%t|previous=%t|tail=%d", m.IncludeSidecars, m.IncludeInit, m.Previous, m.Tail)
+	return b.String()
 }
 
 // ServerMessage is what the browser receives. Exactly one payload field is
@@ -46,7 +84,63 @@ type ServerMessage struct {
 	Seq      int64      `json:"seq"`
 	Snapshot *AppsView  `json:"snapshot,omitempty"`
 	Patch    *AppsPatch `json:"patch,omitempty"`
+	Logs     *LogsBatch `json:"logs,omitempty"`
 	Message  string     `json:"message,omitempty"`
+}
+
+// LogsBatch is a slice of merged output. Lines are batched rather than sent one
+// per frame: a workload emitting thousands of lines a second would otherwise
+// spend the tab's whole budget on framing.
+type LogsBatch struct {
+	Lines []LogLine `json:"lines,omitempty"`
+	Edges []LogEdge `json:"edges,omitempty"`
+	// Dropped is how many lines the server-side ring has discarded. A buffer
+	// that quietly loses lines makes a chatty workload look calm.
+	Dropped int `json:"dropped,omitempty"`
+	// Reset marks the batch that replaces the view, which is what a fresh
+	// subscription and a reconnect both send.
+	Reset bool `json:"reset,omitempty"`
+}
+
+// LogLine is one merged line. Time is RFC3339Nano, or empty when the kubelet
+// did not stamp it.
+type LogLine struct {
+	Seq       int64  `json:"seq"`
+	Time      string `json:"time,omitempty"`
+	Pod       string `json:"pod"`
+	Container string `json:"container"`
+	Text      string `json:"text"`
+	Previous  bool   `json:"previous,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Late      bool   `json:"late,omitempty"`
+}
+
+// LogEdge is a boundary in what the cluster can still tell us.
+type LogEdge struct {
+	Kind      string `json:"kind"` // horizon, restart, gone, error, ended
+	Pod       string `json:"pod,omitempty"`
+	Container string `json:"container,omitempty"`
+	Time      string `json:"time,omitempty"`
+	Reason    string `json:"reason"`
+}
+
+func logLine(l logs.Line) LogLine {
+	out := LogLine{
+		Seq: l.Seq, Pod: l.Pod, Container: l.Container, Text: l.Text,
+		Previous: l.Previous, Truncated: l.Truncated, Late: l.Late,
+	}
+	if !l.Time.IsZero() {
+		out.Time = l.Time.Format(time.RFC3339Nano)
+	}
+	return out
+}
+
+func logEdge(e logs.Edge) LogEdge {
+	out := LogEdge{Kind: e.Kind, Pod: e.Pod, Container: e.Container, Reason: e.Reason}
+	if !e.Time.IsZero() {
+		out.Time = e.Time.Format(time.RFC3339Nano)
+	}
+	return out
 }
 
 // AppsPatch carries only what moved. Absent fields mean unchanged, never empty:
