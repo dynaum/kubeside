@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
+	appsv1 "k8s.io/api/apps/v1"
 	authv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -437,6 +440,13 @@ func (s *Service) Config(contextName, namespace, workload string) (ConfigView, e
 	cfg := resolved.ResolveWith(ctx, client, pod, func(secret string) (bool, string) {
 		return s.mayGetSecret(ctx, client, namespace, secret)
 	})
+
+	// The previous revision's pod template is still on the cluster inside its
+	// ReplicaSet, which is the only place old configuration survives at all.
+	if prev, revision, err := s.previousTemplate(ctx, client, namespace, app); err == nil {
+		resolved.Compare(&cfg, prev, revision)
+	}
+
 	return ConfigView{
 		Context:    contextName,
 		Namespace:  namespace,
@@ -444,6 +454,7 @@ func (s *Service) Config(contextName, namespace, workload string) (ConfigView, e
 		Pod:        cfg.Pod,
 		Containers: cfg.Containers,
 		Caveat:     cfg.Caveat,
+		ComparedTo: cfg.ComparedTo,
 	}, nil
 }
 
@@ -562,3 +573,56 @@ func (s *Service) recordReveal(contextName, namespace, workload, secret, key str
 type ForbiddenError struct{ Reason string }
 
 func (e *ForbiddenError) Error() string { return e.Reason }
+
+// previousTemplate finds the pod template of the revision before the current
+// one.
+//
+// Only Deployments keep their history this way. For anything else the answer is
+// that there is no previous template to compare against, which the diff column
+// renders as no claim rather than as "unchanged".
+func (s *Service) previousTemplate(ctx context.Context, client kubernetes.Interface, namespace string, app apps.App) (resolved.Snapshot, string, error) {
+	if app.Kind != "Deployment" {
+		return resolved.Snapshot{}, "", fmt.Errorf("%s keeps no pod-template history", app.Kind)
+	}
+
+	list, err := client.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return resolved.Snapshot{}, "", err
+	}
+
+	owner := types.UID(ownerUID(app))
+	type rev struct {
+		n  int
+		rs appsv1.ReplicaSet
+	}
+	var mine []rev
+	for _, rs := range list.Items {
+		if !ownedBy(rs.OwnerReferences, owner) {
+			continue
+		}
+		n, err := strconv.Atoi(rs.Annotations["deployment.kubernetes.io/revision"])
+		if err != nil {
+			continue
+		}
+		mine = append(mine, rev{n: n, rs: rs})
+	}
+	if len(mine) < 2 {
+		return resolved.Snapshot{}, "", fmt.Errorf("no previous revision on the cluster")
+	}
+	sort.Slice(mine, func(i, j int) bool { return mine[i].n > mine[j].n })
+
+	prev := mine[1]
+	return resolved.FromTemplate(
+		prev.rs.Spec.Template.Spec.Containers,
+		prev.rs.Spec.Template.Spec.InitContainers,
+	), strconv.Itoa(prev.n), nil
+}
+
+func ownedBy(refs []metav1.OwnerReference, owner types.UID) bool {
+	for _, r := range refs {
+		if r.UID == owner {
+			return true
+		}
+	}
+	return false
+}

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, type ConfigView, type ContextView, type ResolvedContainer, type ResolvedValue } from "./api";
+import {
+  api,
+  type ConfigView, type ContextView, type ResolvedContainer, type ResolvedDiff, type ResolvedValue,
+} from "./api";
 import { envToken } from "./health";
 
 // Screen 3. The configuration the container actually received.
@@ -108,7 +111,11 @@ export function ConfigScreen({
             <div className="frame">
               <div className="frame-cap">
                 <span>Effective environment · container {container.name}</span>
-                <span>values the container actually received</span>
+                <span>
+                  {view.comparedTo
+                    ? `values the container received · compared with revision ${view.comparedTo}`
+                    : "values the container actually received"}
+                </span>
               </div>
               <div className="frame-body" style={{ padding: "var(--s4)" }}>
                 <Table
@@ -169,7 +176,8 @@ function Table({
         <tr>
           <th style={{ width: 250 }}>Key</th>
           <th>Effective value</th>
-          <th style={{ width: 260 }}>Source</th>
+          <th style={{ width: 240 }}>Source</th>
+          <th style={{ width: 190 }}>Since last revision</th>
         </tr>
       </thead>
       <tbody>
@@ -185,6 +193,7 @@ function Table({
               />
             </td>
             <td className="src"><SourceCell value={v} /></td>
+            <td className="src"><DiffCell diff={v.diff} /></td>
           </tr>
         ))}
         {container.mounts?.map((m) => (
@@ -196,6 +205,9 @@ function Table({
             <td className="src">
               volume <span style={{ color: "var(--fg-3)" }}>{m.source.kind} {m.source.ref}</span>
               {m.readOnly && " · read-only"}
+            </td>
+            <td className="src">
+              <span className="tag tag-unknown" title="mounted file contents are not versioned">not recoverable</span>
             </td>
           </tr>
         ))}
@@ -261,8 +273,53 @@ function ValueCell({
       </>
     );
   }
+  if (v.diff?.state === "removed") return <span className="dim">no longer set</span>;
   if (v.value === "") return <span className="dim">empty</span>;
   return <>{v.value}</>;
+}
+
+// The honesty column. Inline values survive per revision inside old
+// ReplicaSets; ConfigMap and Secret contents do not, and those cells say so
+// rather than claiming a value held steady.
+function DiffCell({ diff }: { diff?: ResolvedDiff }) {
+  const state = diff?.state ?? "";
+  switch (state) {
+    case "changed":
+      return (
+        <span className="tag tag-drift" title={`was ${diff?.previous}`}>
+          was {truncate(diff?.previous ?? "")}
+        </span>
+      );
+    case "source-changed":
+      return (
+        <span className="tag tag-drift" title={`was ${diff?.previous}`}>
+          source was {truncate(diff?.previous ?? "")}
+        </span>
+      );
+    case "added":
+      return <span className="tag tag-expected">added</span>;
+    case "removed":
+      return (
+        <span className="tag tag-missing" title={diff?.reason}>
+          removed
+        </span>
+      );
+    case "not-recoverable":
+      return (
+        <span className="tag tag-unknown" title={diff?.reason}>
+          not recoverable
+        </span>
+      );
+    case "runtime":
+      return <span className="dim" title={diff?.reason}>runtime</span>;
+    case "unchanged":
+      return <span className="dim">unchanged</span>;
+  }
+  return <span className="dim">—</span>;
+}
+
+function truncate(s: string): string {
+  return s.length > 18 ? s.slice(0, 17) + "…" : s;
 }
 
 function SourceCell({ value: v }: { value: ResolvedValue }) {

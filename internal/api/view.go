@@ -99,6 +99,8 @@ type ConfigView struct {
 	Pod        string               `json:"pod"`
 	Containers []resolved.Container `json:"containers"`
 	Caveat     string               `json:"caveat,omitempty"`
+	// ComparedTo names the revision the diff column compares against.
+	ComparedTo string `json:"comparedTo,omitempty"`
 }
 
 // RevealView is one secret key, fetched on demand. It carries exactly the key

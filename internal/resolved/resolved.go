@@ -60,6 +60,9 @@ type Value struct {
 	// is disabled and explained, never hidden.
 	CanReveal    bool   `json:"canReveal,omitempty"`
 	RevealReason string `json:"revealReason,omitempty"`
+	// Diff is how this value compares with the previous revision, scoped to
+	// what the cluster actually preserved.
+	Diff Diff `json:"diff,omitzero"`
 }
 
 // Mount is file-based configuration. A tool that shows only environment
@@ -90,6 +93,9 @@ type Config struct {
 	Containers []Container `json:"containers"`
 	// Caveat states what this reading cannot promise.
 	Caveat string `json:"caveat,omitempty"`
+	// ComparedTo names the revision the diff column is against, empty when no
+	// comparison was possible.
+	ComparedTo string `json:"comparedTo,omitempty"`
 }
 
 // The caveat is not a disclaimer, it is the truth about the reading: a

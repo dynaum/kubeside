@@ -113,6 +113,16 @@ export interface ResolvedValue {
   reason?: string;
   canReveal?: boolean;
   revealReason?: string;
+  diff?: ResolvedDiff;
+}
+
+// How a value compares with the previous revision, scoped to what the cluster
+// actually preserved. "not-recoverable" is never "unchanged": Kubernetes keeps
+// no content history for ConfigMaps or Secrets.
+export interface ResolvedDiff {
+  state?: string; // unchanged, changed, added, removed, source-changed, not-recoverable, runtime
+  previous?: string;
+  reason?: string;
 }
 
 export interface RevealView {
@@ -145,6 +155,7 @@ export interface ConfigView {
   pod: string;
   containers: ResolvedContainer[];
   caveat?: string;
+  comparedTo?: string;
 }
 
 export interface MetricsInfo {
