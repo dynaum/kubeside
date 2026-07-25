@@ -62,15 +62,25 @@ func serveUI(out io.Writer, cfg *kubeconfig.Config, mgr *clusters.Manager, opts 
 
 // openBrowser opens the default browser at url, best-effort.
 func openBrowser(url string) error {
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
+	cmd, args := browserCommand(runtime.GOOS, url)
+	return exec.Command(cmd, args...).Start()
+}
+
+// browserCommand is how each platform opens a URL.
+//
+// Split out from the call so all three are testable from one machine. A launch
+// that silently does nothing on the third platform is the kind of thing nobody
+// notices until somebody on Windows reports a blank terminal.
+//
+// Windows uses rundll32 rather than "cmd /c start" because start treats its
+// first quoted argument as a window title and mangles a URL carrying a query
+// string, which is exactly the URL kubeside opens.
+func browserCommand(goos, url string) (string, []string) {
+	switch goos {
 	case "darwin":
-		cmd = "open"
+		return "open", []string{url}
 	case "windows":
-		cmd, args = "rundll32", []string{"url.dll,FileProtocolHandler"}
-	default:
-		cmd = "xdg-open"
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
 	}
-	return exec.Command(cmd, append(args, url)...).Start()
+	return "xdg-open", []string{url}
 }

@@ -191,3 +191,36 @@ func writeConfig(t *testing.T, body string) string {
 	}
 	return p
 }
+
+// The URL kubeside opens carries the session token in a query string, and every
+// platform has to hand it to a browser intact.
+func TestBrowserCommandPerPlatform(t *testing.T) {
+	const url = "http://127.0.0.1:7654/?t=abc-123_XYZ"
+
+	for _, c := range []struct {
+		goos string
+		want string
+	}{
+		{"darwin", "open"},
+		{"windows", "rundll32"},
+		{"linux", "xdg-open"},
+		{"freebsd", "xdg-open"},
+	} {
+		cmd, args := browserCommand(c.goos, url)
+		if cmd != c.want {
+			t.Errorf("%s: command = %q, want %q", c.goos, cmd, c.want)
+		}
+		if args[len(args)-1] != url {
+			t.Errorf("%s: args = %v, the URL must arrive whole", c.goos, args)
+		}
+	}
+}
+
+// "cmd /c start" reads its first quoted argument as a window title, which
+// mangles exactly the URL kubeside opens.
+func TestWindowsDoesNotUseStart(t *testing.T) {
+	cmd, args := browserCommand("windows", "http://127.0.0.1:7654/?t=x")
+	if cmd == "cmd" || strings.Contains(strings.Join(args, " "), "start") {
+		t.Fatalf("command = %q %v; start mangles a URL with a query string", cmd, args)
+	}
+}

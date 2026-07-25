@@ -1,0 +1,50 @@
+name: release
+
+# A tag is the only thing that publishes. Nothing here runs on a push to main,
+# so a release is always a deliberate act.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The UI is embedded in the binary, so it has to be built before the
+      # binary is. A release that ships the placeholder page would be worse
+      # than no release.
+      - name: Build the embedded UI
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+          test -f web/dist/index.html
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Verify the embedded UI reached the binary
+        run: |
+          go build -o /tmp/kubeside ./cmd/kubeside
+          /tmp/kubeside --version
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

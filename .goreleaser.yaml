@@ -5,6 +5,10 @@ project_name: kubeside
 before:
   hooks:
     - go mod tidy
+    # The UI is embedded, so a release built without it would ship the
+    # placeholder page. The release workflow builds it first; this is the
+    # backstop for a local run.
+    - sh -c 'test -f web/dist/index.html || (npm --prefix web ci && npm --prefix web run build)' 
 
 builds:
   - id: kubeside

@@ -23,10 +23,14 @@ func write(t *testing.T, body string) string {
 
 // isolate points every discovery path at an empty directory, so a config file
 // on the developer's own machine cannot influence a test.
+//
+// Windows reads USERPROFILE where the others read HOME, and a test that sets
+// only one of them silently reads the real home directory on the other.
 func isolate(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("KUBESIDE_CONFIG", "")
 	return home

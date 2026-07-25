@@ -26,6 +26,16 @@ more than a live snapshot.
 See [docs/01-problem.md](docs/01-problem.md) for the evidence behind this claim,
 pulled from issue trackers in July 2026.
 
+## Install
+
+```
+brew install dynaum/tap/kubeside
+```
+
+Or download a binary for macOS, Linux, or Windows from the
+[releases page](https://github.com/dynaum/kubeside/releases). One file, no
+runtime, no installer. The UI is embedded in the binary.
+
 ## Planned shape
 
 ```
