@@ -165,3 +165,45 @@ func TestEventsOfOtherObjectsAreIgnored(t *testing.T) {
 		}
 	}
 }
+
+// The out-of-band change: somebody ran kubectl against prod, and the timeline
+// says so instead of leaving it to be reconstructed by hand later.
+func TestReconstructAttributesARolloutToKubectl(t *testing.T) {
+	rs1 := rs(t, "checkout-1", "1", "checkout:1.0.0", "2026-07-24T10:00:02Z", 3)
+	editedAt := mt(t, "2026-07-24T10:00:00Z")
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: "checkout", Namespace: "team-a", UID: ownerUID,
+		ManagedFields: []metav1.ManagedFieldsEntry{
+			{Manager: "kubectl-edit", Operation: metav1.ManagedFieldsOperationUpdate, Time: &editedAt},
+		},
+	}}
+	client := fake.NewSimpleClientset(&rs1, dep)
+
+	tl := Reconstruct(context.Background(), client, target())
+
+	if len(tl.Entries) != 1 {
+		t.Fatalf("entries = %+v", tl.Entries)
+	}
+	if tl.Entries[0].Actor.Kind != ActorKubectl || tl.Entries[0].Actor.Name != "kubectl-edit" {
+		t.Fatalf("actor = %+v, want the kubectl edit that caused it", tl.Entries[0].Actor)
+	}
+}
+
+// A workload the reader may not get is one missing attribution, not a broken
+// timeline.
+func TestReconstructWithoutTheWorkloadStillBuildsHistory(t *testing.T) {
+	rs1 := rs(t, "checkout-1", "1", "checkout:1.0.0", "2026-07-24T10:00:02Z", 3)
+	client := fake.NewSimpleClientset(&rs1)
+	client.PrependReactor("get", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "deployments"}, "checkout", nil)
+	})
+
+	tl := Reconstruct(context.Background(), client, target())
+
+	if len(tl.Entries) != 1 {
+		t.Fatalf("entries = %+v, want the rollout regardless", tl.Entries)
+	}
+	if len(tl.Gaps) != 1 || tl.Gaps[0].Source != "actors" {
+		t.Fatalf("gaps = %+v, want one naming attribution", tl.Gaps)
+	}
+}

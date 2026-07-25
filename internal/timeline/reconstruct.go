@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -97,8 +98,53 @@ func Reconstruct(ctx context.Context, client kubernetes.Interface, t Target) Tim
 		tl.AddHorizon(h)
 	}
 
+	// Attribution comes from the workload's own managedFields: Kubernetes
+	// records which manager last wrote each field and when, and a rollout that
+	// happened at that moment was that manager's doing.
+	fields, err := managedFields(ctx, client, t)
+	switch {
+	case err == nil:
+		rollouts = Attribute(rollouts, fields)
+	case apierrors.IsNotFound(err):
+		// The workload was deleted between the grouping read and this one.
+		// Attribution is enrichment, so its absence is not a gap worth a line
+		// on the screen.
+	default:
+		tl.AddGap("actors", describe(err, strings.ToLower(t.Kind)+"s"))
+	}
+
 	tl.Entries = Merge(rollouts, releases, crashes, warnings)
 	return tl
+}
+
+// managedFields reads the workload object for its field managers. Nothing else
+// from the object is used here: the history came from elsewhere, and this is
+// only about who.
+func managedFields(ctx context.Context, client kubernetes.Interface, t Target) ([]metav1.ManagedFieldsEntry, error) {
+	get := metav1.GetOptions{}
+	switch t.Kind {
+	case "Deployment":
+		o, err := client.AppsV1().Deployments(t.Namespace).Get(ctx, t.Name, get)
+		if err != nil {
+			return nil, err
+		}
+		return o.ManagedFields, nil
+	case "StatefulSet":
+		o, err := client.AppsV1().StatefulSets(t.Namespace).Get(ctx, t.Name, get)
+		if err != nil {
+			return nil, err
+		}
+		return o.ManagedFields, nil
+	case "DaemonSet":
+		o, err := client.AppsV1().DaemonSets(t.Namespace).Get(ctx, t.Name, get)
+		if err != nil {
+			return nil, err
+		}
+		return o.ManagedFields, nil
+	}
+	// A kind kubeside does not model has no attribution path, which is an
+	// absence rather than a failure.
+	return nil, nil
 }
 
 // describe turns an API error into something a developer can act on. A refused

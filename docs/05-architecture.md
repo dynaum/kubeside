@@ -94,8 +94,17 @@ Path 1 fills the axis before the session began. Paths 2 and 3 extend it forward
 while kubeside runs.
 
 Actor attribution reads `metadata.managedFields`, mapping the field manager to a
-label: `kubectl`, `helm`, `argocd`, `hpa`, or a raw manager name. A `kubectl`
-manager touching prod is the out-of-band change Rafael wants surfaced.
+label: `kubectl`, `helm`, `argocd`, `autoscaler`, `controller`, or a raw manager
+name. A `kubectl` manager touching prod is the out-of-band change Rafael wants
+surfaced.
+
+Matching is by time. managedFields records when each manager last wrote, so a
+rollout that happened within a minute of a manager's write was that manager's
+doing. Two limits are respected rather than papered over: only the latest entry
+per manager survives, so attribution reaches the most recent change and older
+rollouts carry no actor rather than a guessed one; and writes to the `status`
+subresource are skipped, because a controller reporting on a change is not the
+change, and attributing to it would bury whoever made it.
 
 ### Metrics
 
