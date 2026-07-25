@@ -10,14 +10,15 @@ import (
 
 	"github.com/dynaum/kubeside/internal/api"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/web"
 )
 
 // serveUI starts the local web server and opens the browser at the URL that
 // already carries the session token.
-func serveUI(out io.Writer, cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.Options, timeout time.Duration, port int, open bool) error {
-	svc := api.NewService(cfg, mgr, opts, timeout)
+func serveUI(out io.Writer, cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.Options, conf *config.Config, timeout time.Duration, port int, open bool) error {
+	svc := api.NewService(cfg, mgr, opts, conf, timeout)
 
 	ui, built := web.FS()
 	if !built {

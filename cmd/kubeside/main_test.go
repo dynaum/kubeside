@@ -2,9 +2,13 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 )
 
@@ -144,4 +148,46 @@ func TestIsMissingExecutable(t *testing.T) {
 	if isMissingExecutable(nil) {
 		t.Error("nil is not a missing binary")
 	}
+}
+
+// The terminal list names each context's environment, so the classification a
+// config file changes is visible without opening a browser.
+func TestPrintContextNamesTheEnvironment(t *testing.T) {
+	var sb strings.Builder
+	mgr := clusters.New(cfg(), nil, clusters.Options{})
+	conf, err := config.Load(config.Options{Path: writeConfig(t, "environments:\n  - name: qa\n    risk: low\n    contexts: [prod]\n")})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	// The context is named prod but the config binds it to qa. The printout
+	// must follow the config, not the name.
+	printContext(&sb, mgr, conf, kubeconfig.Context{Name: "prod"}, result{})
+	got := sb.String()
+	if !strings.Contains(got, "qa") || !strings.Contains(got, "low risk") {
+		t.Fatalf("want the configured environment in the header, got:\n%s", got)
+	}
+}
+
+func TestPrintContextFallsBackToNameClassification(t *testing.T) {
+	var sb strings.Builder
+	mgr := clusters.New(cfg(), nil, clusters.Options{})
+	conf, err := config.Load(config.Options{Path: writeConfig(t, "")})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	printContext(&sb, mgr, conf, kubeconfig.Context{Name: "prod-us-east"}, result{})
+	if got := sb.String(); !strings.Contains(got, "high risk") {
+		t.Fatalf("an unconfigured prod context must still read as high risk, got:\n%s", got)
+	}
+}
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return p
 }

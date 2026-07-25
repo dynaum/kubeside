@@ -116,6 +116,31 @@ namespaceAxis:
   systems: [acme]         # or environments: [sandbox1, sandbox2, ...]
 ```
 
+### How the file is read
+
+Discovery order: an explicit `--config` path, then `KUBESIDE_CONFIG`, then
+`$XDG_CONFIG_HOME/kubeside/config.yaml`, then `~/.config/kubeside/config.yaml`.
+Looking for it creates nothing, not the file and not the directory it would live
+in. No file at the end of that list is the normal first run; a file the user
+named explicitly and that does not exist is an error, because they asked for
+that one.
+
+Parsing is strict and every rejection names the offending value. An unknown key
+fails the load rather than being ignored: a misspelled `environmets:` that
+quietly does nothing would leave a developer believing prod is guarded when it
+is not. The same holds for an unrecognized risk, write policy, or metrics
+source, and for a context bound to two environments at once.
+
+Fields left out inherit the classification of the environment's own name, so an
+entry that only binds contexts keeps the guardrails the name implies, and an
+environment named something the classifier does not recognize inherits
+prod-strength guardrails rather than the safest-sounding default. Setting `risk`
+without `write` re-derives the write policy from the new risk, so raising an
+environment's risk also tightens it.
+
+A context the file says nothing about still classifies by name. Configuring one
+environment never blinds kubeside to the rest.
+
 Cross-environment matching without config uses name plus namespace, tolerating
 environment-suffix conventions (`team-a-qa` matches `team-a-prod`). Two
 unrelated services sharing a name in different namespaces of one cluster stay

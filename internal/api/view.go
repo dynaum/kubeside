@@ -17,6 +17,16 @@ type ContextView struct {
 	HasData bool   `json:"hasData"` // false means never render an app list; nothing is known
 	AgeSec  int64  `json:"ageSec,omitempty"`
 	Error   string `json:"error,omitempty"`
+
+	// The environment this context belongs to, resolved from the config file
+	// when one binds it and from the context name otherwise. Risk drives the
+	// colour and the hazard hatch, so the browser never re-guesses what an
+	// environment is from its name.
+	Environment string `json:"environment"`
+	Risk        string `json:"risk"`   // low, medium, high
+	Color       string `json:"color"`  // green, amber, red, violet, or whatever the file named
+	Hazard      bool   `json:"hazard"` // hatch the edge: high risk only
+	Write       string `json:"write"`  // allow, confirm, deny, break-glass
 }
 
 // AppsView is one context's grouped app list plus the honesty metadata the UI

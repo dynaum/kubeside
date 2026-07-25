@@ -1,5 +1,5 @@
 import type { ContextView } from "./api";
-import { envKey } from "./health";
+import { envToken } from "./health";
 
 const VERSION = "dev";
 
@@ -19,21 +19,18 @@ export function Rail({
         <span className="ver">{VERSION}</span>
       </div>
       <div className="rail-sect">Environments</div>
-      {contexts.map((c) => {
-        const env = envKey(c.name);
-        const hazard = env === "prod" || env === "unc";
-        return (
-          <button
-            key={c.name}
-            className={`rail-item${c.name === selected ? " sel" : ""}${hazard ? " hazard" : ""}`}
-            data-env={env}
-            onClick={() => onSelect(c.name)}
-          >
-            <span>{c.name}</span>
-            <ConnState c={c} />
-          </button>
-        );
-      })}
+      {contexts.map((c) => (
+        <button
+          key={c.name}
+          className={`rail-item${c.name === selected ? " sel" : ""}${c.hazard ? " hazard" : ""}`}
+          data-env={envToken(c)}
+          onClick={() => onSelect(c.name)}
+          title={`${c.environment} · ${c.risk} risk · writes ${c.write}`}
+        >
+          <span>{c.name}</span>
+          <ConnState c={c} />
+        </button>
+      ))}
       <div style={{ marginTop: "auto", padding: "var(--s4)", borderTop: "1px solid var(--line)" }}>
         <div className="mono" style={{ fontSize: 10, color: "var(--fg-4)", lineHeight: 1.6 }}>
           reads ~/.kube/config

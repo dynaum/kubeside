@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/metrics"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -20,16 +21,21 @@ func errUnknownContext(name string) error {
 type Service struct {
 	cfg     *kubeconfig.Config
 	mgr     *clusters.Manager
+	conf    *config.Config
 	opts    kubeconfig.Options
 	timeout time.Duration
 }
 
-// NewService builds the API backend.
-func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.Options, timeout time.Duration) *Service {
+// NewService builds the API backend. conf may be nil, which is the zero-config
+// first run: environments are then inferred from context names.
+func NewService(cfg *kubeconfig.Config, mgr *clusters.Manager, opts kubeconfig.Options, conf *config.Config, timeout time.Duration) *Service {
 	if timeout == 0 {
 		timeout = 15 * time.Second
 	}
-	return &Service{cfg: cfg, mgr: mgr, opts: opts, timeout: timeout}
+	if conf == nil {
+		conf = config.Empty()
+	}
+	return &Service{cfg: cfg, mgr: mgr, conf: conf, opts: opts, timeout: timeout}
 }
 
 // Contexts returns every context with its live connection state, in connect
@@ -39,11 +45,17 @@ func (s *Service) Contexts() []ContextView {
 	out := make([]ContextView, 0, len(statuses))
 	for _, st := range statuses {
 		kctx, _ := s.cfg.Get(st.Context)
+		env := s.conf.Environment(kctx)
 		v := ContextView{
-			Name:    st.Context,
-			Current: kctx.IsCurrent,
-			State:   st.State.String(),
-			HasData: st.State.HasData(),
+			Name:        st.Context,
+			Current:     kctx.IsCurrent,
+			State:       st.State.String(),
+			HasData:     st.State.HasData(),
+			Environment: env.Name,
+			Risk:        env.Risk.String(),
+			Color:       env.Color,
+			Hazard:      env.Hazard,
+			Write:       env.Write.String(),
 		}
 		if st.Age > 0 {
 			v.AgeSec = int64(st.Age.Seconds())
@@ -94,7 +106,13 @@ func (s *Service) Apps(name string) (AppsView, error) {
 
 // metricsInfo probes the metrics source so the UI knows whether to render usage
 // columns. It never fabricates a reading: an unavailable source reports why.
+//
+// A config that names a source overrides the probe, including "none", which
+// switches the usage columns off rather than rendering zeroes.
 func (s *Service) metricsInfo(ctx context.Context, name string) MetricsInfo {
+	if src := s.conf.Defaults.Metrics; src == "none" {
+		return MetricsInfo{Source: "none", Available: false, Reason: "disabled in config"}
+	}
 	client, ok := s.mgr.ClientFor(name)
 	if !ok {
 		return MetricsInfo{Source: "none", Available: false, Reason: "not connected"}

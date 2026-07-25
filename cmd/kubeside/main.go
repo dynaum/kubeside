@@ -22,6 +22,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/version"
 )
@@ -45,6 +46,7 @@ func run(args []string, out, errOut io.Writer) error {
 	contextList := fs.String("context", "", "only use these kubeconfig contexts (comma-separated)")
 	profile := fs.String("profile", "", "AWS_PROFILE for exec credential plugins")
 	timeout := fs.Duration("timeout", 15*time.Second, "per-cluster connect and fetch timeout")
+	configPath := fs.String("config", "", "explicit config file path (default: $"+config.EnvVar+", else ~/.config/kubeside/config.yaml)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -63,6 +65,13 @@ func run(args []string, out, errOut io.Writer) error {
 		if err := os.Setenv("AWS_PROFILE", *profile); err != nil {
 			return fmt.Errorf("set AWS_PROFILE: %w", err)
 		}
+	}
+
+	// The config file is optional. A bad one is an error rather than a silent
+	// fallback: a developer who wrote a config expects it to take effect.
+	conf, err := config.Load(config.Options{Path: *configPath})
+	if err != nil {
+		return err
 	}
 
 	opts := kubeconfig.Options{ExplicitPath: *kubeconfigPath}
@@ -85,17 +94,21 @@ func run(args []string, out, errOut io.Writer) error {
 
 	if *print {
 		fmt.Fprintf(out, "kubeside %s\n", version.String())
-		fmt.Fprintf(out, "%d %s from %s\n\n", len(cfg.Contexts), plural(len(cfg.Contexts), "context", "contexts"), strings.Join(cfg.Sources, ", "))
+		fmt.Fprintf(out, "%d %s from %s\n", len(cfg.Contexts), plural(len(cfg.Contexts), "context", "contexts"), strings.Join(cfg.Sources, ", "))
+		if conf.Path != "" {
+			fmt.Fprintf(out, "config: %s\n", conf.Path)
+		}
+		fmt.Fprintln(out)
 		results := gather(context.Background(), mgr, cfg, *timeout)
 		for _, name := range mgr.ConnectOrder() {
 			kctx, _ := cfg.Get(name)
-			printContext(out, mgr, kctx, results[name])
+			printContext(out, mgr, conf, kctx, results[name])
 		}
 		printFooter(out)
 		return nil
 	}
 
-	return serveUI(out, cfg, mgr, opts, *timeout, *port, !*noOpen)
+	return serveUI(out, cfg, mgr, opts, conf, *timeout, *port, !*noOpen)
 }
 
 type result struct {
@@ -185,11 +198,14 @@ func gather(ctx context.Context, mgr *clusters.Manager, cfg *kubeconfig.Config, 
 	return out
 }
 
-func printContext(out io.Writer, mgr *clusters.Manager, kctx kubeconfig.Context, r result) {
+func printContext(out io.Writer, mgr *clusters.Manager, conf *config.Config, kctx kubeconfig.Context, r result) {
 	name := kctx.Name
 	status, _ := mgr.Status(name)
 
-	fmt.Fprintf(out, "── %s  [%s]", name, status.State)
+	// Naming the environment and its risk here is what makes a config file
+	// verifiable without opening a browser.
+	env := conf.Environment(kctx)
+	fmt.Fprintf(out, "── %s  [%s]  %s · %s risk", name, status.State, env.Name, env.Risk)
 	if status.State == clusters.StateStale && status.Age > 0 {
 		fmt.Fprintf(out, "  snapshot %s old", status.Age.Round(time.Second))
 	}

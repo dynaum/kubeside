@@ -1,20 +1,20 @@
 import { useMemo, useState } from "react";
-import { type AppsView, type AppView } from "./api";
+import { type AppsView, type AppView, type ContextView } from "./api";
 import { Glyph } from "./Status";
-import { envKey } from "./health";
+import { envToken } from "./health";
 import { useApps, type Liveness } from "./stream";
 
 const ATTENTION: Record<string, number> = {
   failed: 0, degraded: 1, progressing: 2, unknown: 3, healthy: 4,
 };
 
-export function AppsScreen({ context }: { context: string }) {
+export function AppsScreen({ context }: { context: ContextView }) {
   const [filter, setFilter] = useState("");
   // The screen is a subscription, not a fetch: one snapshot, then patches for
   // as long as it is on screen.
-  const { view, error: err, liveness } = useApps(context);
+  const { view, error: err, liveness } = useApps(context.name);
 
-  const env = envKey(context);
+  const env = envToken(context);
 
   const rows = useMemo(() => {
     if (!view) return [];
@@ -33,9 +33,11 @@ export function AppsScreen({ context }: { context: string }) {
 
   return (
     <>
-      <div className={`topbar env-edge${env === "prod" || env === "unc" ? " hazard" : ""}`} data-env={env}>
-        <span className="env-chip">{context}</span>
+      <div className={`topbar env-edge${context.hazard ? " hazard" : ""}`} data-env={env}>
+        <span className="env-chip" title={`${context.risk} risk · writes ${context.write}`}>{context.environment}</span>
         <div className="crumb">
+          <span className="up">{context.name}</span>
+          <span className="sep">/</span>
           <span className="cur">apps</span>
         </div>
         {view && <ScopeNote view={view} />}
@@ -51,7 +53,7 @@ export function AppsScreen({ context }: { context: string }) {
 
       <div className="page">
         {err && <Empty head="Could not load apps" body={err} />}
-        {!err && !view && <div><span className="spinner" /> <span style={{ color: "var(--fg-3)" }}>connecting to {context}…</span></div>}
+        {!err && !view && <div><span className="spinner" /> <span style={{ color: "var(--fg-3)" }}>connecting to {context.name}…</span></div>}
         {view && <Body view={view} rows={rows} totalShown={rows.length} />}
       </div>
     </>

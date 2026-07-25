@@ -8,6 +8,13 @@ export interface ContextView {
   hasData: boolean;
   ageSec?: number;
   error?: string;
+  // Resolved by the backend from the config file, or from the context name
+  // when no file binds it.
+  environment: string;
+  risk: string;
+  color: string;
+  hazard: boolean;
+  write: string;
 }
 
 export interface AppView {

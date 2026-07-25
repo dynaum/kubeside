@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type ContextView } from "./api";
 import { Rail } from "./Rail";
 import { AppsScreen } from "./AppsScreen";
-import { envKey } from "./health";
+import { envToken } from "./health";
 
 export function App() {
   const [contexts, setContexts] = useState<ContextView[] | null>(null);
@@ -50,13 +50,13 @@ export function App() {
     );
   }
 
-  const env = selected ? envKey(selected) : "unc";
+  const current = contexts.find((c) => c.name === selected) ?? null;
 
   return (
-    <div className="shell" data-env={env}>
+    <div className="shell" data-env={current ? envToken(current) : "unc"}>
       <Rail contexts={contexts} selected={selected} onSelect={setSelected} />
       <div className="main">
-        {selected ? <AppsScreen context={selected} /> : <NoSelection />}
+        {current ? <AppsScreen context={current} /> : <NoSelection />}
       </div>
     </div>
   );

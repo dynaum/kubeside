@@ -10,13 +10,23 @@ export function healthClass(health: string): string {
   }
 }
 
-// Environment risk drives the rail edge and hazard hatch. The backend has not
-// yet classified environments per context, so this maps a name heuristically
-// for now; it is replaced when the environment model is wired through.
-export function envKey(name: string): "qa" | "stg" | "prod" | "unc" {
-  const n = name.toLowerCase();
-  if (/\b(prod|production|prd|live)\b|prod/.test(n)) return "prod";
-  if (/stg|staging|stage|uat|preprod/.test(n)) return "stg";
-  if (/qa|test|dev|sandbox|sbx/.test(n)) return "qa";
-  return "unc";
+export type EnvToken = "qa" | "stg" | "prod" | "unc";
+
+// Environment colour drives the rail edge, the topbar, and the hazard hatch.
+// The backend resolves it from the config file when one binds the context, and
+// from the context name otherwise, so this maps a decision rather than making
+// one.
+//
+// A colour the design system has no token for falls back to risk, and anything
+// unknown lands on unclassified, which carries prod-strength styling. An
+// environment nobody classified is never rendered as safe.
+const BY_COLOR: Record<string, EnvToken> = {
+  green: "qa", amber: "stg", red: "prod", violet: "unc",
+};
+const BY_RISK: Record<string, EnvToken> = {
+  low: "qa", medium: "stg", high: "prod",
+};
+
+export function envToken(env: { color?: string; risk?: string }): EnvToken {
+  return BY_COLOR[env.color ?? ""] ?? BY_RISK[env.risk ?? ""] ?? "unc";
 }
