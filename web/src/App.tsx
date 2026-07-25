@@ -2,24 +2,42 @@ import { useEffect, useState } from "react";
 import { api, type ContextView } from "./api";
 import { Rail } from "./Rail";
 import { AppsScreen } from "./AppsScreen";
+import { LogsScreen } from "./LogsScreen";
 import { envToken } from "./health";
+import { parseRoute, routeHash, type Route } from "./route";
 
 export function App() {
   const [contexts, setContexts] = useState<ContextView[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   const [err, setErr] = useState<string | null>(null);
+
+  // The hash is the source of truth for what is on screen, so the browser's
+  // back button and a pasted permalink both work without a router.
+  useEffect(() => {
+    const onHash = () => setRoute(parseRoute(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     api.contexts()
       .then((cs) => {
         setContexts(cs);
         // The current context leads; select it so the developer's usual
-        // workspace renders first.
-        const cur = cs.find((c) => c.current) ?? cs[0];
-        if (cur) setSelected(cur.name);
+        // workspace renders first, unless a permalink named another.
+        setRoute((r) => {
+          if (r.context && cs.some((c) => c.name === r.context)) return r;
+          const cur = cs.find((c) => c.current) ?? cs[0];
+          return cur ? { screen: "apps", context: cur.name } : r;
+        });
       })
       .catch((e) => setErr(String(e)));
   }, []);
+
+  const go = (next: Route) => {
+    window.location.hash = routeHash(next);
+    setRoute(next);
+  };
 
   if (err) {
     return (
@@ -50,13 +68,33 @@ export function App() {
     );
   }
 
-  const current = contexts.find((c) => c.name === selected) ?? null;
+  const current = contexts.find((c) => c.name === route.context) ?? null;
 
   return (
     <div className="shell" data-env={current ? envToken(current) : "unc"}>
-      <Rail contexts={contexts} selected={selected} onSelect={setSelected} />
+      <Rail
+        contexts={contexts}
+        selected={current?.name ?? null}
+        onSelect={(name) => go({ screen: "apps", context: name })}
+      />
       <div className="main">
-        {current ? <AppsScreen context={current} /> : <NoSelection />}
+        {!current && <NoSelection />}
+        {current && route.screen === "apps" && (
+          <AppsScreen
+            context={current}
+            onOpenLogs={(namespace, workload) =>
+              go({ screen: "logs", context: current.name, namespace, workload })
+            }
+          />
+        )}
+        {current && route.screen === "logs" && (
+          <LogsScreen
+            context={current}
+            namespace={route.namespace}
+            workload={route.workload}
+            onBack={() => go({ screen: "apps", context: current.name })}
+          />
+        )}
       </div>
     </div>
   );

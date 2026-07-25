@@ -79,6 +79,10 @@ type ServerMessage struct {
 	Type    string `json:"type"`
 	View    string `json:"view"`
 	Context string `json:"context"`
+	// Key echoes the subscription this message belongs to, so a tab holding
+	// two subscriptions on one context routes by identity rather than by
+	// guessing from the view name.
+	Key string `json:"key,omitempty"`
 	// Seq increments per subscription, starting at the snapshot. A client that
 	// sees a gap knows it missed a patch and must resubscribe.
 	Seq      int64      `json:"seq"`

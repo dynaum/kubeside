@@ -29,11 +29,21 @@ const (
 	// than dropped or allowed to consume the buffer.
 	MaxLineBytes = 64 * 1024
 
-	// ReorderWindow is how far back a newly arrived line may be inserted.
-	// Replicas do not arrive in lockstep, and a merged view that ignores that
-	// reads out of order. Beyond the window the reader has already moved on,
-	// so a line lands at the end and says it is late.
+	// ReorderWindow is how far back a newly arrived line may be inserted once a
+	// stream is live. Replicas do not arrive in lockstep, and a merged view
+	// that ignores that reads out of order. Beyond the window the reader has
+	// already moved on, so a line lands at the end and says it arrived late.
 	ReorderWindow = 5 * time.Second
+
+	// SettleWindow is how long after a subscription every line merges strictly
+	// by timestamp, however old.
+	//
+	// Opening a workload replays each replica's retained scrollback at once,
+	// and that backlog can span hours. Judging those lines by the live reorder
+	// window would order the first screen by which kubelet answered first,
+	// which is exactly the wrong answer for the screen a developer is looking
+	// at when they arrive.
+	SettleWindow = 3 * time.Second
 )
 
 // Meta is what every line from one stream carries.
@@ -142,6 +152,10 @@ type Buffer struct {
 	lines   []Line
 	dropped int
 	seq     int64
+	now     func() time.Time
+	// settleUntil is when the initial backlog stops merging unconditionally by
+	// timestamp and the live reorder window takes over.
+	settleUntil time.Time
 	// lastSeen is the timestamp carried forward onto unstamped lines, so a
 	// stack trace stays attached to the panic that produced it.
 	lastSeen time.Time
@@ -152,7 +166,16 @@ func NewBuffer(n int) *Buffer {
 	if n <= 0 {
 		n = DefaultBufferLines
 	}
-	return &Buffer{cap: n, lines: make([]Line, 0, n)}
+	now := time.Now
+	return &Buffer{cap: n, lines: make([]Line, 0, n), now: now, settleUntil: now().Add(SettleWindow)}
+}
+
+// endSettle ends the backlog phase immediately. Tests use it to exercise live
+// ordering without waiting.
+func (b *Buffer) endSettle() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.settleUntil = time.Time{}
 }
 
 // Add places a line in time order and returns it as stored.
@@ -176,9 +199,11 @@ func (b *Buffer) Add(l Line) Line {
 	b.seq++
 	l.Seq = b.seq
 
+	settling := b.now().Before(b.settleUntil)
+
 	at := len(b.lines)
 	if n := len(b.lines); n > 0 && l.Time.Before(b.lines[n-1].Time) {
-		if b.lines[n-1].Time.Sub(l.Time) > ReorderWindow {
+		if !settling && b.lines[n-1].Time.Sub(l.Time) > ReorderWindow {
 			l.Late = true
 		} else {
 			at = sort.Search(n, func(i int) bool { return b.lines[i].Time.After(l.Time) })

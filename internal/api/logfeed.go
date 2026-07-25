@@ -84,7 +84,7 @@ func (f *logFeed) attach(s *subscriber) {
 
 func (f *logFeed) message(seq int64, batch *LogsBatch) ServerMessage {
 	return ServerMessage{
-		Type: msgLogs, View: ViewLogs, Context: f.req.Context, Seq: seq, Logs: batch,
+		Type: msgLogs, View: ViewLogs, Context: f.req.Context, Key: f.key, Seq: seq, Logs: batch,
 	}
 }
 
@@ -95,7 +95,7 @@ func (f *logFeed) run(ctx context.Context) {
 		// either: it is the wrong name, or the cluster is unreachable and says
 		// so elsewhere. The window is told why rather than left waiting.
 		f.broadcast(ServerMessage{
-			Type: msgError, View: ViewLogs, Context: f.req.Context, Message: err.Error(),
+			Type: msgError, View: ViewLogs, Context: f.req.Context, Key: f.key, Message: err.Error(),
 		})
 		f.hub.stopLogs(f)
 		return

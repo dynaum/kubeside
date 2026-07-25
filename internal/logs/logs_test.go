@@ -138,6 +138,7 @@ func TestBufferInsertsOutOfOrderLinesInPlace(t *testing.T) {
 // says it is out of order.
 func TestBufferMarksAVeryLateLineInsteadOfReordering(t *testing.T) {
 	b := NewBuffer(10)
+	b.endSettle()
 	base := ts(t, "2026-07-24T10:00:00Z")
 	b.Add(Line{Time: base.Add(time.Minute), Text: "now"})
 	b.Add(Line{Time: base, Text: "ancient"})
@@ -199,4 +200,40 @@ func texts(lines []Line) string {
 		out = append(out, l.Text)
 	}
 	return strings.Join(out, " ")
+}
+
+// Opening a workload replays each replica's scrollback at once, and those
+// backlogs can be hours apart. The first screen must read in real time order,
+// not in the order the kubelets answered.
+func TestBufferMergesTheInitialBacklogByTimestamp(t *testing.T) {
+	b := NewBuffer(10)
+
+	// The second replica answers first, with much older output.
+	b.Add(Line{Time: ts(t, "2026-07-24T10:00:00Z"), Pod: "b", Text: "recent"})
+	b.Add(Line{Time: ts(t, "2026-07-24T04:00:00Z"), Pod: "a", Text: "ancient"})
+	b.Add(Line{Time: ts(t, "2026-07-24T04:00:01Z"), Pod: "a", Text: "old"})
+
+	lines, _ := b.Snapshot()
+	if got := texts(lines); got != "ancient old recent" {
+		t.Fatalf("order = %q, want the backlog merged by time", got)
+	}
+	for _, l := range lines {
+		if l.Late {
+			t.Errorf("backlog line %q marked late; nobody has read it yet", l.Text)
+		}
+	}
+}
+
+// Once the backlog has settled, the live rule applies again: a line whose
+// moment has passed is appended and says so.
+func TestBufferReturnsToTheLiveRuleAfterSettling(t *testing.T) {
+	b := NewBuffer(10)
+	b.Add(Line{Time: ts(t, "2026-07-24T10:00:00Z"), Text: "first"})
+	b.endSettle()
+	b.Add(Line{Time: ts(t, "2026-07-24T04:00:00Z"), Text: "stale arrival"})
+
+	lines, _ := b.Snapshot()
+	if texts(lines) != "first stale arrival" || !lines[1].Late {
+		t.Fatalf("lines = %+v, want the late line appended and marked", lines)
+	}
 }

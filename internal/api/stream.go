@@ -160,7 +160,7 @@ func (h *hub) subscribeApps(m ClientMessage, s *subscriber) error {
 	f.mu.Lock()
 	if f.has {
 		snap := f.last
-		s.send(ServerMessage{Type: msgSnapshot, View: m.View, Context: m.Context, Seq: f.seq, Snapshot: &snap})
+		s.send(ServerMessage{Type: msgSnapshot, View: m.View, Context: m.Context, Key: f.key, Seq: f.seq, Snapshot: &snap})
 	}
 	f.mu.Unlock()
 	return nil
@@ -275,7 +275,7 @@ func (f *feed) publish(v AppsView) {
 		f.has, f.last = true, v
 		f.seq++
 		snap := v
-		msg = ServerMessage{Type: msgSnapshot, View: f.view, Context: f.context, Seq: f.seq, Snapshot: &snap}
+		msg = ServerMessage{Type: msgSnapshot, View: f.view, Context: f.context, Key: f.key, Seq: f.seq, Snapshot: &snap}
 	default:
 		patch, changed := diffApps(f.last, v)
 		f.last = v
@@ -284,7 +284,7 @@ func (f *feed) publish(v AppsView) {
 			return
 		}
 		f.seq++
-		msg = ServerMessage{Type: msgPatch, View: f.view, Context: f.context, Seq: f.seq, Patch: &patch}
+		msg = ServerMessage{Type: msgPatch, View: f.view, Context: f.context, Key: f.key, Seq: f.seq, Patch: &patch}
 	}
 	f.mu.Unlock()
 
@@ -347,7 +347,7 @@ func (c *streamConn) read(ctx context.Context) {
 		switch m.Type {
 		case msgSubscribe:
 			if err := c.hub.subscribe(m, c.sub); err != nil {
-				c.sub.send(ServerMessage{Type: msgError, View: m.View, Context: m.Context, Message: err.Error()})
+				c.sub.send(ServerMessage{Type: msgError, View: m.View, Context: m.Context, Key: m.subscriptionKey(), Message: err.Error()})
 				continue
 			}
 			c.mu.Lock()

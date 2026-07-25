@@ -8,7 +8,13 @@ const ATTENTION: Record<string, number> = {
   failed: 0, degraded: 1, progressing: 2, unknown: 3, healthy: 4,
 };
 
-export function AppsScreen({ context }: { context: ContextView }) {
+export function AppsScreen({
+  context,
+  onOpenLogs,
+}: {
+  context: ContextView;
+  onOpenLogs: (namespace: string, workload: string) => void;
+}) {
   const [filter, setFilter] = useState("");
   // The screen is a subscription, not a fetch: one snapshot, then patches for
   // as long as it is on screen.
@@ -54,13 +60,20 @@ export function AppsScreen({ context }: { context: ContextView }) {
       <div className="page">
         {err && <Empty head="Could not load apps" body={err} />}
         {!err && !view && <div><span className="spinner" /> <span style={{ color: "var(--fg-3)" }}>connecting to {context.name}…</span></div>}
-        {view && <Body view={view} rows={rows} totalShown={rows.length} />}
+        {view && <Body view={view} rows={rows} totalShown={rows.length} onOpenLogs={onOpenLogs} />}
       </div>
     </>
   );
 }
 
-function Body({ view, rows }: { view: AppsView; rows: AppView[]; totalShown: number }) {
+function Body({
+  view, rows, onOpenLogs,
+}: {
+  view: AppsView;
+  rows: AppView[];
+  totalShown: number;
+  onOpenLogs: (namespace: string, workload: string) => void;
+}) {
   if (!hasData(view.state)) {
     return (
       <Empty
@@ -102,6 +115,7 @@ function Body({ view, rows }: { view: AppsView; rows: AppView[]; totalShown: num
             <th className="r">Objects</th>
             <th>Grouped by</th>
             <th>Why</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -119,6 +133,9 @@ function Body({ view, rows }: { view: AppsView; rows: AppView[]; totalShown: num
               <td className="dim mono" style={{ fontSize: 11 }}>{a.groupedBy}</td>
               <td className="dim" style={{ fontSize: 11, whiteSpace: "normal" }}>
                 {a.health === "healthy" ? "" : a.detail}
+              </td>
+              <td className="r">
+                <button className="btn" onClick={() => onOpenLogs(a.namespace, a.name)}>logs</button>
               </td>
             </tr>
           ))}

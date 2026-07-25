@@ -112,3 +112,35 @@ body {
 .kbd { display: inline-block; font-size: 10px; padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r1); color: var(--fg-3); background: var(--raised); }
 .spinner { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--fg-4); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Controls and tabs, ported from the design system. */
+.btn-primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn-primary:hover { background: var(--fg-2); border-color: var(--fg-2); }
+/* Disabled, NEVER hidden. Carries the missing capability. */
+.btn[disabled] { opacity: 1; cursor: not-allowed; border-style: dashed; border-color: var(--line); color: var(--fg-4); background: transparent; }
+.btn[disabled]:hover { border-color: var(--line); color: var(--fg-4); }
+.row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); margin-bottom: var(--s4); }
+.tab { padding: var(--s2) var(--s3); font-family: var(--font-cond); font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-3); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; background: none; border-left: none; border-right: none; border-top: none; }
+.tab:hover { color: var(--fg-2); }
+.tab.sel { color: var(--fg); border-bottom-color: var(--fg); }
+.tab .n { font-family: var(--font-mono); color: var(--fg-4); margin-left: 5px; }
+
+/* Logs. Merged output is monospace and dense; the pod key is the only colour. */
+.log { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.65; }
+.log-row { display: flex; gap: var(--s3); padding: 1px 0; }
+.log-row:hover { background: var(--raised); }
+.log .ts { color: var(--fg-4); flex: none; }
+.log .pod { flex: none; width: 132px; overflow: hidden; text-overflow: ellipsis; }
+.log .msg { color: var(--fg-2); white-space: pre-wrap; min-width: 0; }
+.log .msg .hit { background: color-mix(in srgb, var(--warn) 34%, transparent); color: var(--fg); }
+.log .lvl-err { color: var(--err); }
+.log .lvl-warn { color: var(--warn); }
+.pod-key { display: flex; flex-wrap: wrap; gap: var(--s3); font-size: 11px; }
+.pod-key span { display: inline-flex; align-items: center; gap: var(--s2); color: var(--fg-3); font-family: var(--font-mono); }
+.pod-key i { width: 8px; height: 8px; border-radius: 1px; display: block; }
+.pod-key button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: var(--s2); }
+.pod-key button[aria-pressed="false"] { opacity: .4; }
+/* An availability edge is a rule with a reason, never blank space. */
+.log-gap { display: flex; align-items: center; gap: var(--s3); margin: var(--s3) 0; color: var(--fg-3); font-family: var(--font-cond); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.log-gap::before, .log-gap::after { content: ""; flex: 1; height: 1px; background-image: repeating-linear-gradient(90deg, var(--fg-4) 0 4px, transparent 4px 8px); }
