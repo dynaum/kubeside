@@ -50,6 +50,10 @@ func (s *streamStub) observedChanges() []string {
 	return out
 }
 
+func (s *streamStub) Config(_, _, _ string) (ConfigView, error) {
+	return ConfigView{}, errors.New("no config in this test")
+}
+
 func (s *streamStub) AppDetail(_, _, _ string) (AppDetailView, error) {
 	return AppDetailView{}, errors.New("no detail in this test")
 }

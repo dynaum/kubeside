@@ -14,11 +14,13 @@ export function LogsScreen({
   namespace,
   workload,
   onBack,
+  onNavigate,
 }: {
   context: ContextView;
   namespace: string;
   workload: string;
   onBack: () => void;
+  onNavigate: (screen: "app" | "config") => void;
 }) {
   const [pattern, setPattern] = useState("");
   const [includeSidecars, setIncludeSidecars] = useState(false);
@@ -77,6 +79,8 @@ export function LogsScreen({
 
       <div className="page" style={{ display: "flex", flexDirection: "column", paddingBottom: 0, minHeight: 0 }}>
         <div className="tabs">
+          <button className="tab" onClick={() => onNavigate("app")}>Timeline</button>
+          <button className="tab" onClick={() => onNavigate("config")}>Configuration</button>
           <span className="tab sel">Logs</span>
         </div>
 

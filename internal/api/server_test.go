@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dynaum/kubeside/internal/logs"
+	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
 
@@ -26,6 +27,23 @@ func (s stubAPI) LogSource(_, _, _ string) (logs.Source, error) {
 }
 
 func (s stubAPI) Observed(string, AppView, AppView) {}
+
+func (s stubAPI) Config(contextName, namespace, workload string) (ConfigView, error) {
+	if workload != "checkout" {
+		return ConfigView{}, errors.New("no workload " + workload)
+	}
+	return ConfigView{
+		Context: contextName, Namespace: namespace, Workload: workload, Pod: "checkout-1",
+		Caveat: "values are read from the ConfigMaps as they are now",
+		Containers: []resolved.Container{{
+			Name: "app",
+			Values: []resolved.Value{
+				{Key: "LOG_LEVEL", Value: "debug", Source: resolved.Source{Kind: resolved.SourceInline}},
+				{Key: "PASSWORD", Masked: true, Source: resolved.Source{Kind: resolved.SourceSecret, Ref: "db", Key: "PASSWORD"}},
+			},
+		}},
+	}, nil
+}
 
 func (s stubAPI) AppDetail(contextName, namespace, workload string) (AppDetailView, error) {
 	tl, err := s.Timeline(contextName, namespace, workload)
@@ -418,6 +436,43 @@ func TestAppDetailRequiresEveryCoordinate(t *testing.T) {
 func TestAppDetailNeedsTheToken(t *testing.T) {
 	s := newTestServer(t)
 	if got := do(t, s, "GET", "/api/app?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func TestConfigReturnsResolvedValues(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/api/config?context=qa&namespace=team-a&workload=checkout&"+tokenParam+"="+s.Token(), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got ConfigView
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Containers) != 1 || len(got.Containers[0].Values) != 2 {
+		t.Fatalf("view = %+v", got)
+	}
+	if got.Caveat == "" {
+		t.Error("the reading arrived without its caveat")
+	}
+}
+
+// The wire must not carry a secret value even by accident.
+func TestConfigNeverSerializesASecretValue(t *testing.T) {
+	s := newTestServer(t)
+	body := do(t, s, "GET", "/api/config?context=qa&namespace=team-a&workload=checkout&"+tokenParam+"="+s.Token(), nil).Body.String()
+	if strings.Contains(body, "hunter2") || strings.Contains(body, "\"value\":\"\\u003c") {
+		t.Fatalf("body carries something that looks like a secret: %s", body)
+	}
+	if !strings.Contains(body, "\"masked\":true") {
+		t.Errorf("body does not mark the masked value: %s", body)
+	}
+}
+
+func TestConfigNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/config?context=qa&namespace=team-a&workload=checkout", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }

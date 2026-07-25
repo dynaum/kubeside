@@ -6,6 +6,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
+	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/timeline"
 )
 
@@ -87,6 +88,17 @@ type PodView struct {
 	Restarts int32  `json:"restarts"`
 	AgeSec   int64  `json:"ageSec,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// ConfigView is the configuration one container actually received, one table
+// per container.
+type ConfigView struct {
+	Context    string               `json:"context"`
+	Namespace  string               `json:"namespace"`
+	Workload   string               `json:"workload"`
+	Pod        string               `json:"pod"`
+	Containers []resolved.Container `json:"containers"`
+	Caveat     string               `json:"caveat,omitempty"`
 }
 
 // TimelineView is one app's reconstructed history, plus the honesty metadata:

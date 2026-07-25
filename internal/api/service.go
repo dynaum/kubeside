@@ -11,8 +11,10 @@ import (
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/logs"
 	"github.com/dynaum/kubeside/internal/metrics"
+	"github.com/dynaum/kubeside/internal/resolved"
 	"github.com/dynaum/kubeside/internal/session"
 	"github.com/dynaum/kubeside/internal/timeline"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
@@ -392,4 +394,69 @@ func newestRollout(entries []timeline.Entry) (timeline.Entry, bool) {
 		}
 	}
 	return timeline.Entry{}, false
+}
+
+// Config resolves what one container actually received.
+//
+// The reading comes from a running pod rather than the workload's template,
+// because the template is what was asked for and the pod is what happened. A
+// rollout that has not finished makes those different, and the difference is
+// the thing worth seeing.
+func (s *Service) Config(contextName, namespace, workload string) (ConfigView, error) {
+	if _, ok := s.cfg.Get(contextName); !ok {
+		return ConfigView{}, errUnknownContext(contextName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	if err := s.mgr.Connect(ctx, contextName); err != nil {
+		return ConfigView{}, err
+	}
+	client, ok := s.mgr.ClientFor(contextName)
+	if !ok {
+		return ConfigView{}, fmt.Errorf("context %q is not connected", contextName)
+	}
+
+	app, err := s.appOf(ctx, contextName, namespace, workload)
+	if err != nil {
+		return ConfigView{}, err
+	}
+	name := representativePod(app)
+	if name == "" {
+		return ConfigView{}, fmt.Errorf("%s has no pods; there is no resolved configuration to read", workload)
+	}
+
+	pod, err := client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return ConfigView{}, err
+	}
+
+	cfg := resolved.Resolve(ctx, client, pod)
+	return ConfigView{
+		Context:    contextName,
+		Namespace:  namespace,
+		Workload:   workload,
+		Pod:        cfg.Pod,
+		Containers: cfg.Containers,
+		Caveat:     cfg.Caveat,
+	}, nil
+}
+
+// representativePod picks the pod to read configuration from: a ready one when
+// there is one, because a crash-looping pod may never have resolved its
+// environment at all.
+func representativePod(a apps.App) string {
+	var fallback string
+	for _, w := range a.Workloads {
+		if w.Kind != "Pod" {
+			continue
+		}
+		if fallback == "" {
+			fallback = w.Name
+		}
+		if w.Status != nil && w.Status.Ready {
+			return w.Name
+		}
+	}
+	return fallback
 }

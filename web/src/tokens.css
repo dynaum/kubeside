@@ -172,3 +172,18 @@ body {
 .stat { font-family: var(--font-cond); font-size: 10px; letter-spacing: .11em; text-transform: uppercase; color: var(--fg-4); }
 .stat-value { font-family: var(--font-mono); font-size: 20px; color: var(--fg); margin-top: 2px; }
 .stat-value .of { color: var(--fg-4); }
+
+/* Key/value tables for resolved configuration. */
+.kv { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
+.kv th { font-family: var(--font-cond); font-size: 10px; font-weight: 600; letter-spacing: .11em; text-transform: uppercase; color: var(--fg-4); text-align: left; padding: 0 var(--s3) var(--s2); border-bottom: 1px solid var(--line); }
+.kv td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.kv td.k { color: var(--fg); }
+.kv td.v { color: var(--fg-2); word-break: break-all; }
+.kv td.src { color: var(--fg-4); font-size: 11px; }
+.kv tr:hover { background: var(--raised); }
+.masked { color: var(--fg-4); letter-spacing: .16em; }
+.tag-drift { color: var(--warn); }
+.tag-missing { color: var(--err); }
+.tag-expected { color: var(--fg-4); }
+.tag-unknown { color: var(--unknown); border-style: dashed; }
+.note .fix { margin-top: var(--s3); }

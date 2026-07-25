@@ -19,13 +19,13 @@ export function AppDetailScreen({
   context,
   namespace,
   workload,
-  onOpenLogs,
+  onNavigate,
   onBack,
 }: {
   context: ContextView;
   namespace: string;
   workload: string;
-  onOpenLogs: () => void;
+  onNavigate: (screen: "config" | "logs") => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<AppDetailView | null>(null);
@@ -61,7 +61,7 @@ export function AppDetailScreen({
           </span>
         )}
         <span className="spacer" />
-        <button className="btn" onClick={onOpenLogs}>Logs</button>
+        <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
 
       <div className="page">
@@ -74,13 +74,18 @@ export function AppDetailScreen({
         {!err && !view && (
           <div><span className="spinner" /> <span style={{ color: "var(--fg-3)" }}>reconstructing history…</span></div>
         )}
-        {view && <Body view={view} />}
+        {view && <Body view={view} onNavigate={onNavigate} />}
       </div>
     </>
   );
 }
 
-function Body({ view }: { view: AppDetailView }) {
+function Body({
+  view, onNavigate,
+}: {
+  view: AppDetailView;
+  onNavigate: (screen: "config" | "logs") => void;
+}) {
   const entries = view.timeline.entries ?? [];
   const horizons = view.timeline.horizons ?? [];
   const gaps = view.timeline.gaps ?? [];
@@ -90,6 +95,8 @@ function Body({ view }: { view: AppDetailView }) {
     <>
       <div className="tabs">
         <span className="tab sel">Timeline</span>
+        <button className="tab" onClick={() => onNavigate("config")}>Configuration</button>
+        <button className="tab" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
 
       <div style={{ display: "flex", gap: "var(--s4)", marginBottom: "var(--s5)" }}>

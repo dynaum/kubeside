@@ -97,6 +97,46 @@ export interface AppDetailView {
   timeline: TimelineView;
 }
 
+export interface ResolvedSource {
+  kind: string; // inline, configMap, secret, downwardAPI, resourceField
+  ref?: string;
+  key?: string;
+}
+
+export interface ResolvedValue {
+  key: string;
+  value: string;
+  source: ResolvedSource;
+  masked?: boolean;
+  missing?: boolean;
+  overrides?: boolean;
+  reason?: string;
+}
+
+export interface ResolvedMount {
+  path: string;
+  source: ResolvedSource;
+  masked?: boolean;
+  readOnly?: boolean;
+}
+
+export interface ResolvedContainer {
+  name: string;
+  init?: boolean;
+  image?: string;
+  values: ResolvedValue[];
+  mounts?: ResolvedMount[];
+}
+
+export interface ConfigView {
+  context: string;
+  namespace: string;
+  workload: string;
+  pod: string;
+  containers: ResolvedContainer[];
+  caveat?: string;
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -136,5 +176,9 @@ export const api = {
   app: (context: string, namespace: string, workload: string) =>
     get<AppDetailView>(
       `/api/app?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,
+    ),
+  config: (context: string, namespace: string, workload: string) =>
+    get<ConfigView>(
+      `/api/config?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}&workload=${encodeURIComponent(workload)}`,
     ),
 };

@@ -58,6 +58,8 @@ type API interface {
 	Timeline(contextName, namespace, workload string) (TimelineView, error)
 	// AppDetail is one workload's current state, pods, and history in one read.
 	AppDetail(contextName, namespace, workload string) (AppDetailView, error)
+	// Config resolves what one container actually received.
+	Config(contextName, namespace, workload string) (ConfigView, error)
 	// Observed reports a row that changed between two reads, which is how the
 	// timeline extends forward while kubeside runs.
 	Observed(contextName string, before, after AppView)
@@ -87,6 +89,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/contexts", s.handleContexts)
 	mux.HandleFunc("/api/apps", s.handleApps)
 	mux.HandleFunc("/api/app", s.handleAppDetail)
+	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/stream", s.handleStream)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +244,21 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.api.Apps(name)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	ctxName, ns, workload := q.Get("context"), q.Get("namespace"), q.Get("workload")
+	if ctxName == "" || ns == "" || workload == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "context, namespace and workload are required"})
+		return
+	}
+	out, err := s.api.Config(ctxName, ns, workload)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

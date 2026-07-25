@@ -4,6 +4,7 @@ import { Rail } from "./Rail";
 import { AppsScreen } from "./AppsScreen";
 import { LogsScreen } from "./LogsScreen";
 import { AppDetailScreen } from "./AppDetailScreen";
+import { ConfigScreen } from "./ConfigScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 
@@ -96,8 +97,19 @@ export function App() {
             context={current}
             namespace={route.namespace}
             workload={route.workload}
-            onOpenLogs={() =>
-              go({ screen: "logs", context: current.name, namespace: route.namespace, workload: route.workload })
+            onNavigate={(screen) =>
+              go({ screen, context: current.name, namespace: route.namespace, workload: route.workload })
+            }
+            onBack={() => go({ screen: "apps", context: current.name })}
+          />
+        )}
+        {current && route.screen === "config" && (
+          <ConfigScreen
+            context={current}
+            namespace={route.namespace}
+            workload={route.workload}
+            onNavigate={(screen) =>
+              go({ screen, context: current.name, namespace: route.namespace, workload: route.workload })
             }
             onBack={() => go({ screen: "apps", context: current.name })}
           />
@@ -107,6 +119,9 @@ export function App() {
             context={current}
             namespace={route.namespace}
             workload={route.workload}
+            onNavigate={(screen) =>
+              go({ screen, context: current.name, namespace: route.namespace, workload: route.workload })
+            }
             onBack={() => go({ screen: "apps", context: current.name })}
           />
         )}
