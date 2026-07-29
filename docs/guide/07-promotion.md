@@ -34,8 +34,18 @@ listed flat:
 | `suspicious` | Different in a way that usually signals a mistake, such as `LOG_LEVEL: debug` in prod. |
 | `missing` | Present in one environment, absent in the other. |
 
-Secret values are compared by a truncated digest, never by value, so you learn
-whether two environments hold the same secret without either of them being read.
+Secret values never reach the browser and never reach a screen. The comparison
+is a fingerprint: kubeside reads both values inside its own process, keyed-hashes
+each one, compares the fingerprints, and discards the values. You learn whether
+two environments hold the same credential without either being rendered
+anywhere.
+
+Two details worth stating plainly, because the shorter sentence would be a lie.
+The read happens: this is the one feature that fetches Secret contents, and it
+only runs after your cluster answers that you may `get` that Secret. And the
+fingerprint is keyed with a random key generated when the process starts, so a
+digest cannot be checked against a guessed value, by you or by anyone who sees
+your screen.
 
 ## Matching apps across environments
 

@@ -1,6 +1,8 @@
 package resolved
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -275,13 +277,34 @@ func isNumeric(v string) bool {
 	return err == nil && v != ""
 }
 
-// Digest hashes a secret value for comparison.
+// digestKey is generated once per process and never leaves it.
+//
+// An unkeyed hash of a secret is a verifier for anybody who obtains one. They
+// guess a value, hash it, and compare; truncation does not help, because the
+// threat is confirming a guess rather than inverting a hash, and a wordlist
+// runs offline. Digests reach the browser, and from there a screenshot, a
+// pasted response, or a shared screen.
+//
+// Keying it kills that. Both sides of a comparison are hashed in this process,
+// so equality still works, and nothing persists a digest, so a fresh key on
+// every run costs nothing and rules out precomputation across runs.
+var digestKey = func() []byte {
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		// A process that cannot read randomness cannot make this promise, and
+		// carrying on with a predictable key would keep the appearance of one.
+		panic("kubeside: no entropy for the digest key: " + err.Error())
+	}
+	return k
+}()
+
+// Digest fingerprints a secret value for comparison.
 //
 // The digest exists so two environments' credentials can be compared without
 // either being read onto a screen. It is truncated because nobody needs 64
-// characters to see that two hashes differ, and a full hash of a short secret
-// is closer to the secret than a prefix is.
+// characters to see that two fingerprints differ.
 func Digest(value []byte) string {
-	sum := sha256.Sum256(value)
-	return "sha256:" + hex.EncodeToString(sum[:])[:12]
+	mac := hmac.New(sha256.New, digestKey)
+	mac.Write(value)
+	return "sha256:" + hex.EncodeToString(mac.Sum(nil))[:12]
 }

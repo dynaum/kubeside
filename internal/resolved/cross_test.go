@@ -1,6 +1,11 @@
 package resolved
 
-import "testing"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+	"testing"
+)
 
 func side(values ...Value) Container {
 	return Container{Name: "app", Values: values}
@@ -245,5 +250,45 @@ func TestDownwardAPIValuesAreExpectedToDiffer(t *testing.T) {
 	r := rowFor(t, rows, "POD_IP")
 	if r.Class != ClassExpected {
 		t.Fatalf("row = %+v, want expected", r)
+	}
+}
+
+// A digest is published to a browser, and from there to a screenshot, a pasted
+// response, or a shared screen. An unkeyed hash of a secret is a verifier for
+// anybody who has one: they guess, hash, and compare. Truncating it does not
+// help, because the threat is confirming a guess rather than inverting a hash.
+//
+// The key is per process, so two runs cannot be compared against each other and
+// no wordlist can be precomputed. Nothing persists digests, so this costs
+// nothing.
+func TestADigestCannotBeVerifiedByGuessingTheValue(t *testing.T) {
+	value := []byte("hunter2")
+
+	plain := sha256.Sum256(value)
+	unkeyed := "sha256:" + hex.EncodeToString(plain[:])[:12]
+
+	if Digest(value) == unkeyed {
+		t.Fatal("the digest is a plain hash of the value; anybody who guesses the value confirms it")
+	}
+}
+
+func TestTheSameValueDigestsTheSameWayWithinAProcess(t *testing.T) {
+	// Both sides of a cross-environment comparison are hashed here, so equality
+	// has to survive. This is the whole point of the digest.
+	if Digest([]byte("same")) != Digest([]byte("same")) {
+		t.Fatal("one value produced two digests; no comparison could work")
+	}
+	if Digest([]byte("a")) == Digest([]byte("b")) {
+		t.Fatal("two values produced one digest")
+	}
+}
+
+func TestADigestNeverCarriesTheValue(t *testing.T) {
+	got := Digest([]byte("hunter2"))
+	if strings.Contains(got, "hunter2") {
+		t.Fatalf("digest = %q", got)
+	}
+	if !strings.HasPrefix(got, "sha256:") {
+		t.Fatalf("digest = %q, want the algorithm named", got)
 	}
 }

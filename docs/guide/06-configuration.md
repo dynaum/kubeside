@@ -23,7 +23,12 @@ answer.
 
 Secret values are masked because kubeside never fetched them. Masking a value
 already in the browser would be a rendering decision; not reading it is a
-property.
+property. The resolver has no path to the Secrets API at all, which is what
+makes it a property rather than a promise.
+
+One exception, stated here rather than buried: the cross-environment diff does
+read Secret values, inside the process, to fingerprint them. See
+[promotion and drift](07-promotion.html).
 
 `Reveal` asks the cluster whether you may `get` that specific Secret, using a
 SelfSubjectAccessReview. If the answer is no, the control is disabled and names
