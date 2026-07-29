@@ -43,7 +43,11 @@ checksum:
 # dist/homebrew/ and simply not uploaded, because a release that fails after
 # building six correct archives helps nobody.
 brews:
-  - skip_upload: '{{ if .Env.TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}'
+    # The tap keeps its formulae in Formula/, beside agdog.rb. Without this
+    # GoReleaser writes to the repository root, which is why the first v1.0.0
+    # attempt was reaching for /kubeside.rb.
+  - directory: Formula
+    skip_upload: '{{ if .Env.TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}'
     repository:
       owner: dynaum
       name: homebrew-tap
