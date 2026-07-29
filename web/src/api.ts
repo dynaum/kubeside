@@ -294,15 +294,14 @@ export interface AppsView {
   metrics: MetricsInfo;
 }
 
-function token(): string {
-  return new URLSearchParams(window.location.search).get("t") ?? "";
-}
+// No token travels in a URL. The server hands one over once, as an HttpOnly
+// cookie the browser attaches to same-origin requests on its own, so nothing
+// here has to hold a credential and nothing lands in history.
 
 // post carries a body rather than query parameters, because a secret value
 // must never travel in a URL where it would land in history and logs.
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${path}${sep}t=${encodeURIComponent(token())}`, {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
@@ -321,8 +320,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${path}${sep}t=${encodeURIComponent(token())}`, {
+  const res = await fetch(path, {
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {

@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -46,7 +47,22 @@ type Server struct {
 	ui      http.Handler
 	api     API
 	hub     *hub
+
+	// handoff is spent the first time it is presented. It exists so the URL
+	// the browser is told to open carries something worthless a second later,
+	// rather than the session token itself.
+	handoffMu sync.Mutex
+	handoff   string
+	spent     bool
 }
+
+// sessionCookie holds the token once the handoff has been exchanged. HttpOnly,
+// so a script on the page cannot read it, and SameSite=Strict, so no other
+// origin can cause the browser to send it.
+const sessionCookie = "kubeside_session"
+
+// handoffParam is the single-use code in the URL kubeside opens.
+const handoffParam = "h"
 
 // API is what the server exposes. Keeping it an interface lets the transport
 // be tested without a cluster manager behind it.
@@ -106,7 +122,11 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{token: tok, ui: ui, api: a, hub: newHub(a, DefaultPollInterval)}
+	code, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{token: tok, handoff: code, ui: ui, api: a, hub: newHub(a, DefaultPollInterval)}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -137,8 +157,25 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	return s, nil
 }
 
-// Token is the session token. Callers put it in the URL they open.
+// Token is the session token. It is never put in a URL.
 func (s *Server) Token() string { return s.token }
+
+// Handoff is the single-use code the opened URL carries.
+func (s *Server) Handoff() string { return s.handoff }
+
+// redeem exchanges the handoff code for the session token, once.
+func (s *Server) redeem(code string) bool {
+	s.handoffMu.Lock()
+	defer s.handoffMu.Unlock()
+	if s.spent || code == "" {
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(code), []byte(s.handoff)) != 1 {
+		return false
+	}
+	s.spent = true
+	return true
+}
 
 // Handler is the fully wrapped handler, security included. There is no way to
 // obtain the bare mux, so the checks cannot be bypassed by accident.
@@ -152,9 +189,14 @@ func Listen(port int) (net.Listener, error) {
 	return net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 }
 
-// URL is the address to open, token included.
+// URL is the address to open.
+//
+// It carries a code that is spent the moment the browser presents it, not the
+// session token. The URL becomes an argv another local user can read, and the
+// browser writes it to its history; both survive long enough to matter, and
+// neither should hold a credential that stays valid.
 func (s *Server) URL(l net.Listener) string {
-	return fmt.Sprintf("http://%s/?%s=%s", l.Addr().String(), tokenParam, url.QueryEscape(s.token))
+	return fmt.Sprintf("http://%s/?%s=%s", l.Addr().String(), handoffParam, url.QueryEscape(s.handoff))
 }
 
 func newToken() (string, error) {
@@ -192,7 +234,9 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 			"default-src 'self'; frame-ancestors 'none'; img-src 'self' data:; "+
 				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
 				"font-src 'self' https://fonts.gstatic.com; "+
-				"connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:*")
+				// The server binds 127.0.0.1, so the IPv6 loopback form is not needed,
+				// and Chromium rejects it as an invalid source anyway.
+				"connect-src 'self' ws://127.0.0.1:* ws://localhost:*")
 		// No CORS headers are ever sent: no other origin may read this.
 
 		if !originAllowed(r) {
@@ -208,8 +252,35 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// gating it would break asset loading, since the browser requests
 		// /assets/*.js without the token in the URL. Origin and Host checks
 		// still apply to every path.
+		// The handoff arrives on an ordinary page load. Exchanging it here,
+		// before anything else looks at the request, keeps the code out of
+		// every handler and guarantees the redirect happens even if the UI is
+		// absent.
+		if !requiresToken(r.URL.Path) && r.URL.Query().Get(handoffParam) != "" {
+			if s.redeem(r.URL.Query().Get(handoffParam)) {
+				http.SetCookie(w, &http.Cookie{
+					Name:     sessionCookie,
+					Value:    s.token,
+					Path:     "/",
+					HttpOnly: true,
+					SameSite: http.SameSiteStrictMode,
+				})
+			}
+			// Redirected either way. A code that has been spent must not leave
+			// the browser sitting on a URL that looks like it still works.
+			clean := *r.URL
+			q := clean.Query()
+			q.Del(handoffParam)
+			clean.RawQuery = q.Encode()
+			http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
+			return
+		}
+
 		if requiresToken(r.URL.Path) && !s.tokenValid(r) {
-			http.Error(w, "invalid or missing session token", http.StatusUnauthorized)
+			// The handoff is spent once, so a tab restored from history after
+			// the cookie is gone lands here. Saying which terminal to look at
+			// beats a bare 401 nobody can act on.
+			http.Error(w, "this browser is not holding a kubeside session; open the URL kubeside printed in your terminal", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -225,7 +296,13 @@ func requiresToken(path string) bool {
 // tokenValid accepts the token from the query string or an Authorization
 // header. Comparison is constant time so a timing signal cannot leak it.
 func (s *Server) tokenValid(r *http.Request) bool {
-	got := r.URL.Query().Get(tokenParam)
+	var got string
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		got = c.Value
+	}
+	if got == "" {
+		got = r.URL.Query().Get(tokenParam)
+	}
 	if got == "" {
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			got = strings.TrimPrefix(h, "Bearer ")

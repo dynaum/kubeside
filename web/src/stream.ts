@@ -182,9 +182,10 @@ class Stream {
   private open() {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
 
-    const t = new URLSearchParams(window.location.search).get("t") ?? "";
+    // The session cookie rides the upgrade like any same-origin request, so
+    // the socket needs no credential of its own.
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${window.location.host}/api/stream?t=${encodeURIComponent(t)}`);
+    const ws = new WebSocket(`${proto}//${window.location.host}/api/stream`);
     this.ws = ws;
     this.setState(this.retry === RETRY_MIN ? "connecting" : "retrying");
 

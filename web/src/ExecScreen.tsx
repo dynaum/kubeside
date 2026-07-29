@@ -60,10 +60,9 @@ export function ExecScreen({
     term.open(mount.current);
     fit.fit();
 
-    const t = new URLSearchParams(window.location.search).get("t") ?? "";
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const query = new URLSearchParams({
-      t, context: context.name, namespace, pod, container: "", workload, confirm,
+      context: context.name, namespace, pod, container: "", workload, confirm,
     });
     const ws = new WebSocket(`${proto}//${window.location.host}/api/exec?${query}`);
     ws.binaryType = "arraybuffer";

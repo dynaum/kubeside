@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -442,7 +443,9 @@ func TestListenBindsLoopbackOnly(t *testing.T) {
 	}
 }
 
-func TestURLCarriesTheToken(t *testing.T) {
+// The URL carries a single-use code and nothing else. What it must still be is
+// loopback: the address is not configurable for the same reason the bind is not.
+func TestURLIsLoopbackAndCarriesOnlyTheHandoff(t *testing.T) {
 	s := newTestServer(t)
 	l, err := Listen(0)
 	if err != nil {
@@ -451,8 +454,11 @@ func TestURLCarriesTheToken(t *testing.T) {
 	defer l.Close()
 
 	got := s.URL(l)
-	if !strings.Contains(got, s.Token()) {
-		t.Errorf("URL %q does not carry the token", got)
+	if strings.Contains(got, s.Token()) {
+		t.Errorf("URL %q carries the session token", got)
+	}
+	if !strings.Contains(got, s.Handoff()) {
+		t.Errorf("URL %q carries no handoff code", got)
 	}
 	if !strings.HasPrefix(got, "http://127.0.0.1:") {
 		t.Errorf("URL %q should be loopback", got)
@@ -926,5 +932,96 @@ func TestResponsesRefuseFramingAndSendNoReferrer(t *testing.T) {
 	}
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Errorf("CSP = %q, want frame-ancestors", csp)
+	}
+}
+
+// The token used to ride in the URL the browser was told to open. That URL
+// becomes an argv another local user can read from ps, and the browser writes
+// it into its on-disk history, where it stays valid for as long as the process
+// runs. It is the one place the launch flow put secret material on disk, which
+// sits badly beside a promise that credentials stay on your machine.
+//
+// The URL now carries a code that works once. The first request presenting it
+// is given the session token as an HttpOnly cookie and sent to a clean path.
+
+func TestTheOpenedURLCarriesNoToken(t *testing.T) {
+	s := newTestServer(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+
+	url := s.URL(l)
+	if strings.Contains(url, s.Token()) {
+		t.Fatalf("url = %q, still carries the session token", url)
+	}
+}
+
+func TestTheHandoffCodeIsExchangedForACookie(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/?h="+s.Handoff(), nil)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("code = %d, want a redirect off the URL that carries the code", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); strings.Contains(loc, s.Handoff()) {
+		t.Errorf("redirected to %q, which still carries the code", loc)
+	}
+
+	var got *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookie {
+			got = c
+		}
+	}
+	if got == nil {
+		t.Fatal("no session cookie was set")
+	}
+	if got.Value != s.Token() {
+		t.Error("the cookie does not carry the session token")
+	}
+	if !got.HttpOnly {
+		t.Error("the cookie is readable from JavaScript")
+	}
+	if got.SameSite != http.SameSiteStrictMode {
+		t.Error("the cookie is not SameSite=Strict")
+	}
+}
+
+// A code that works twice is a token with extra steps: it sits in the browser
+// history exactly like the old one did.
+func TestTheHandoffCodeWorksOnce(t *testing.T) {
+	s := newTestServer(t)
+	code := s.Handoff()
+
+	if rec := do(t, s, "GET", "/?h="+code, nil); rec.Code != http.StatusFound {
+		t.Fatalf("first use: code = %d", rec.Code)
+	}
+	rec := do(t, s, "GET", "/?h="+code, nil)
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookie {
+			t.Fatal("the code was accepted a second time")
+		}
+	}
+}
+
+func TestTheCookieAuthenticatesTheAPI(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/api/contexts", func(r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: s.Token()})
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want the cookie to authenticate", rec.Code)
+	}
+}
+
+func TestAWrongCookieIsRefused(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/api/contexts", func(r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "not-the-token"})
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("code = %d, want 401", rec.Code)
 	}
 }
