@@ -181,8 +181,15 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// it in current browsers, but not in every version that shipped, and a
 		// CSP that quietly blocks the socket would leave a screen that renders
 		// once and then never moves.
+		// This app is never embedded. Framing it is only useful to somebody
+		// trying to get a click out of a developer, and both headers are sent
+		// because the older one is what some browsers still enforce.
+		w.Header().Set("X-Frame-Options", "DENY")
+		// The token rides in the URL until it is exchanged, so no request from
+		// this page should carry a Referer anywhere.
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; "+
+			"default-src 'self'; frame-ancestors 'none'; img-src 'self' data:; "+
 				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
 				"font-src 'self' https://fonts.gstatic.com; "+
 				"connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:*")

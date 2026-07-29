@@ -910,3 +910,21 @@ func TestGateRefusesAVerbWithNoObject(t *testing.T) {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
+
+// The app is never embedded, and no request from it should carry a Referer to
+// a third party. Both are one-line headers, and both are the kind of thing
+// nobody notices is missing until a report arrives.
+func TestResponsesRefuseFramingAndSendNoReferrer(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/healthz", nil)
+
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("X-Frame-Options = %q", got)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q", got)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("CSP = %q, want frame-ancestors", csp)
+	}
+}
