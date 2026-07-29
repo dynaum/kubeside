@@ -526,6 +526,16 @@ func (s *Service) Config(contextName, namespace, workload string) (ConfigView, e
 // representativePod picks the pod to read configuration from: a ready one when
 // there is one, because a crash-looping pod may never have resolved its
 // environment at all.
+// hasPod reports whether the pod belongs to this app's group.
+func hasPod(a apps.App, name string) bool {
+	for _, w := range a.Workloads {
+		if w.Kind == "Pod" && w.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func representativePod(a apps.App) string {
 	var fallback string
 	for _, w := range a.Workloads {
@@ -836,15 +846,47 @@ func (s *Service) StartForward(req ForwardRequest) (forward.Forward, error) {
 		return forward.Forward{}, err
 	}
 
+	// The security boundary first, exactly as the exec path does it. A tunnel
+	// is a write: it opens a socket into a cluster, and the browser disabling
+	// the button is not a control, because anything holding the session token
+	// can post the request the button would have sent.
+	perm := s.perms.Can(ctx, req.Context, rbac.Action{
+		Verb: "create", Resource: "pods", Subresource: "portforward", Namespace: req.Namespace,
+	})
+	if !perm.Allowed {
+		return forward.Forward{}, &ForbiddenError{Reason: perm.Reason}
+	}
+
+	// The pod is the scope, not a label. A caller who names a pod outside the
+	// workload is reaching for something they never opened, so the workload's
+	// own group is what a named pod has to be found in.
+	app, err := s.appOf(ctx, req.Context, req.Namespace, req.Workload)
+	if err != nil {
+		return forward.Forward{}, err
+	}
 	pod := req.Pod
 	if pod == "" {
-		app, err := s.appOf(ctx, req.Context, req.Namespace, req.Workload)
-		if err != nil {
-			return forward.Forward{}, err
-		}
 		if pod = representativePod(app); pod == "" {
 			return forward.Forward{}, fmt.Errorf("%s has no pods to forward to", req.Workload)
 		}
+	} else if !hasPod(app, pod) {
+		return forward.Forward{}, fmt.Errorf(
+			"pod %s is not part of %s in %s; a forward reaches one workload's pods, not any pod in the namespace",
+			pod, req.Workload, req.Namespace)
+	}
+
+	// Then the guardrail. Forwarding a prod database to a laptop is the write
+	// that looks most like a read, which is precisely why it needs the same
+	// ceremony as the ones that look dangerous.
+	kctx, _ := s.cfg.Get(req.Context)
+	gate := s.guard.Check(req.Context, s.conf.Environment(kctx), guard.Action{
+		Verb: "port-forward", Resource: "pod", Name: pod, Namespace: req.Namespace,
+		Kubectl: fmt.Sprintf("kubectl port-forward %s %d:%d -n %s --context %s",
+			pod, req.LocalPort, req.RemotePort, req.Namespace, req.Context),
+		Blast: guard.Blast{Pods: 1, Summary: "one port of " + pod},
+	})
+	if !gate.Permitted {
+		return forward.Forward{}, &ForbiddenError{Reason: gate.Reason}
 	}
 
 	env := s.envOf(req.Context)
