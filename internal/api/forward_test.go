@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/dynaum/kubeside/internal/timeline"
 	authv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
@@ -123,4 +124,87 @@ func TestForwardWithBothGatesPassedReachesTheDial(t *testing.T) {
 	if atomic.LoadInt32(asked) == 0 {
 		t.Fatal("the tunnel was opened without the cluster ever being asked")
 	}
+}
+
+// Arming an environment is the most consequential thing a developer can do in
+// this product without touching a workload, and it was filed under a key
+// nothing reads.
+//
+// The record was keyed by context, namespace, and workload. A bare unlock
+// carries none of the last two — the dialog sends them empty, because arming an
+// environment is not about one app — so the entry landed under "qa1|/" while
+// every timeline reads "qa1|team-a/checkout". It was written and then lost.
+func TestAnUnlockIsOnTheTimelineOfEveryAppInThatEnvironment(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	if _, err := svc.Gate(GateRequest{Context: "qa1", Unlock: "paging on-call for a stuck rollout"}); err != nil {
+		t.Fatalf("Gate: %v", err)
+	}
+
+	view, err := svc.Timeline("qa1", "team-a", "checkout")
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+
+	var found bool
+	for _, e := range view.Entries {
+		if e.Kind == timeline.KindBreakGlass {
+			found = true
+			if !strings.Contains(e.Detail, "paging on-call") {
+				t.Errorf("detail = %q, want the stated reason kept", e.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the unlock was recorded where nothing can read it")
+	}
+}
+
+// The window is per context, so the record is too. An unlock in one environment
+// must not appear on another's timeline, which would read as production having
+// been armed when it was not.
+func TestAnUnlockDoesNotAppearInAnotherEnvironment(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	if _, err := svc.Gate(GateRequest{Context: "qa1", Unlock: "a reason"}); err != nil {
+		t.Fatalf("Gate: %v", err)
+	}
+
+	view, err := svc.Timeline("prod1", "team-a", "checkout")
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+	for _, e := range view.Entries {
+		if e.Kind == timeline.KindBreakGlass {
+			t.Fatal("an unlock in qa showed up on prod's timeline")
+		}
+	}
+}
+
+// The reveal record is the audit trail for a secret leaving the cluster, and
+// the workload it was filed under is caller-supplied. An empty one dropped the
+// record entirely rather than filing it somewhere readable.
+func TestARevealIsRecordedEvenWithoutAWorkload(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	if _, err := svc.RevealSecret("qa1", "team-a", "db", "PASSWORD", ""); err != nil {
+		t.Fatalf("RevealSecret: %v", err)
+	}
+
+	view, err := svc.Timeline("qa1", "team-a", "checkout")
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+	for _, e := range view.Entries {
+		if e.Kind == timeline.KindReveal {
+			return
+		}
+	}
+	t.Fatal("a reveal with no workload left no record")
 }

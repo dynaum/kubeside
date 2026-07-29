@@ -286,6 +286,7 @@ func (s *Service) Timeline(contextName, namespace, workload string) (TimelineVie
 	// every call is what keeps a change that happened thirty seconds ago from
 	// waiting for a cache to expire.
 	view.Entries = session.Merge(view.Entries, s.live.Entries(key))
+	view.Entries = session.Merge(view.Entries, s.live.Entries(auditKey(contextName)))
 
 	// The session marker is mandatory. An app kubeside has watched all along
 	// without seeing a change still gets one, because an unmarked lane reads as
@@ -329,6 +330,18 @@ func (s *Service) sessionHorizon(key string) timeline.Horizon {
 
 func sessionKey(contextName, namespace, workload string) string {
 	return contextName + "|" + namespace + "/" + workload
+}
+
+// auditKey is where events about an environment live, as opposed to events
+// about one app in it.
+//
+// Arming production is not a fact about a workload, and filing it under one
+// meant filing it under whatever namespace and workload the caller happened to
+// send — empty, for the dialog that arms an environment, which put the record
+// somewhere no timeline reads. These entries are merged into every timeline in
+// the context instead, because every app in that environment was affected.
+func auditKey(contextName string) string {
+	return contextName + "|environment"
 }
 
 func (s *Service) reconstruct(contextName, namespace, workload string) (TimelineView, error) {
@@ -629,10 +642,13 @@ func (s *Service) RevealSecret(contextName, namespace, secret, key, workload str
 // appears in the entry: an audit trail that leaks what it audits is worse than
 // none.
 func (s *Service) recordReveal(contextName, namespace, workload, secret, key string) {
-	if workload == "" {
-		return
+	// The workload is caller-supplied, so an absent one must not be able to
+	// drop the record. A reveal that reached a screen is always on a timeline.
+	where := auditKey(contextName)
+	if workload != "" {
+		where = sessionKey(contextName, namespace, workload)
 	}
-	s.live.Record(sessionKey(contextName, namespace, workload), timeline.Entry{
+	s.live.Record(where, timeline.Entry{
 		At:     time.Now(),
 		Kind:   timeline.KindReveal,
 		Title:  "revealed " + key,
@@ -1155,7 +1171,7 @@ func (s *Service) Gate(req GateRequest) (GateView, error) {
 		}
 		// Arming production is an event, not a setting, so it lands on the
 		// timeline beside every other change.
-		s.live.Record(sessionKey(req.Context, req.Namespace, req.Name), timeline.Entry{
+		s.live.Record(auditKey(req.Context), timeline.Entry{
 			At:     rec.At,
 			Kind:   timeline.KindBreakGlass,
 			Title:  "unlocked " + env.Name + " for writes",
