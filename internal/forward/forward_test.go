@@ -249,3 +249,44 @@ func TestLocalAddressIsLoopbackOnly(t *testing.T) {
 		t.Fatalf("LocalAddress = %q; anything but loopback exposes the cluster to the network", LocalAddress)
 	}
 }
+
+// The tunnel's URL is the one cluster path this product builds by hand, and a
+// path segment that escapes its position is how that becomes somebody else's
+// request. Every other call goes through client-go's typed builders, which
+// reject these before they reach the wire.
+func TestATargetThatEscapesItsPathSegmentIsRefused(t *testing.T) {
+	cases := []struct {
+		name   string
+		target Target
+	}{
+		{"namespace traverses", Target{Namespace: "team-a/pods/victim/portforward/../..", Pod: "api-1"}},
+		{"pod traverses", Target{Namespace: "team-a", Pod: "../../../../version"}},
+		{"namespace is a dot", Target{Namespace: ".", Pod: "api-1"}},
+		{"pod carries a percent", Target{Namespace: "team-a", Pod: "api%2f1"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := ValidTarget(c.target); err == nil {
+				t.Fatalf("%+v was accepted", c.target)
+			}
+		})
+	}
+}
+
+func TestAnOrdinaryTargetIsAccepted(t *testing.T) {
+	if err := ValidTarget(Target{Namespace: "team-a", Pod: "checkout-6c8f7d-qk2z"}); err != nil {
+		t.Fatalf("ValidTarget: %v", err)
+	}
+}
+
+// The check belongs on the manager, not on the tunnel, so no caller can reach
+// the wire with a bad segment by taking a different route in.
+func TestStartRefusesATargetThatEscapesItsPathSegment(t *testing.T) {
+	m := New(&fakeTunnel{})
+	_, err := m.Start(context.Background(), Target{
+		Context: "qa", Namespace: "team-a", Pod: "../../../../version", RemotePort: 8080,
+	})
+	if err == nil {
+		t.Fatal("a traversing pod name reached the tunnel")
+	}
+}

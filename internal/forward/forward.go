@@ -14,8 +14,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+
+	"k8s.io/apimachinery/pkg/api/validation/path"
 )
 
 // LocalAddress is where forwards bind. It is a constant rather than an option,
@@ -80,6 +83,24 @@ type entry struct {
 	cancel  context.CancelFunc
 }
 
+// ValidTarget rejects a namespace or pod that cannot be safely encoded as one
+// path segment.
+//
+// Every other cluster call in this product goes through client-go's typed
+// builders, which run this same check before a request is built. The tunnel is
+// the one path assembled by hand, because SPDY needs the URL rather than a
+// request object, so the check has to be made explicitly here rather than
+// inherited.
+func ValidTarget(t Target) error {
+	if msgs := path.IsValidPathSegmentName(t.Namespace); len(msgs) != 0 {
+		return fmt.Errorf("namespace %q cannot be part of a request path: %s", t.Namespace, strings.Join(msgs, "; "))
+	}
+	if msgs := path.IsValidPathSegmentName(t.Pod); len(msgs) != 0 {
+		return fmt.Errorf("pod %q cannot be part of a request path: %s", t.Pod, strings.Join(msgs, "; "))
+	}
+	return nil
+}
+
 // Manager owns every live forward.
 type Manager struct {
 	tunnel       Tunnel
@@ -109,6 +130,12 @@ func New(t Tunnel) *Manager {
 // ports, because then half the developer's terminal history points at a port
 // that is no longer the one.
 func (m *Manager) Start(ctx context.Context, t Target) (Forward, error) {
+	// Checked here rather than in the tunnel, so no caller can reach the wire
+	// with a segment that escapes its position in the path.
+	if err := ValidTarget(t); err != nil {
+		return Forward{}, err
+	}
+
 	m.mu.Lock()
 	if id, ok := m.byTarget[t.key()]; ok {
 		if e := m.entries[id]; e != nil {
