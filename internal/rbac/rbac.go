@@ -17,6 +17,7 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -30,8 +31,22 @@ type Action struct {
 	Group       string
 }
 
-// Key reads like the question it asks, so a cache entry and an error message
-// can share one phrasing.
+// cacheKey is the identity of a question. It exists because Key() is a
+// sentence, and a sentence is ambiguous: subresource and name are both joined
+// with a slash there, so "create pods/exec" describes both "exec into a pod"
+// and "create a pod named exec". /api/gate takes a caller-supplied name, so
+// sharing one cache entry between those two would let a question seed the
+// answer to a different one.
+//
+// The separator is a byte no Kubernetes name, namespace, group, or verb can
+// contain, so no two distinct actions can produce one key.
+func (a Action) cacheKey() string {
+	return strings.Join([]string{a.Verb, a.Group, a.Resource, a.Subresource, a.Name, a.Namespace}, "\x00")
+}
+
+// Key reads like the question it asks, so a refusal can be shown to a human.
+// The browser also matches capability entries on its prefix, which makes the
+// phrasing a wire contract. It is deliberately not the cache key.
 func (a Action) Key() string {
 	resource := a.Resource
 	if a.Subresource != "" {
@@ -87,7 +102,7 @@ func New(r Reviewer) *Resolver {
 
 // Can answers one question, asking the cluster at most once per session.
 func (r *Resolver) Can(ctx context.Context, contextName string, a Action) Permission {
-	key := a.Key()
+	key := a.cacheKey()
 
 	r.mu.Lock()
 	if perms, ok := r.cache[contextName]; ok {
@@ -118,7 +133,7 @@ func (r *Resolver) Can(ctx context.Context, contextName string, a Action) Permis
 	case allowed:
 		c.perm = Permission{Allowed: true}
 	default:
-		c.perm = Permission{Reason: "needs " + key}
+		c.perm = Permission{Reason: "needs " + a.Key()}
 	}
 	c.wg.Done()
 

@@ -1196,8 +1196,10 @@ func (s *Service) Gate(req GateRequest) (GateView, error) {
 			},
 		}, nil
 	}
+	resource := pluralize(req.Resource)
 	perm := s.perms.Can(ctx, req.Context, rbac.Action{
-		Verb: req.Verb, Resource: pluralize(req.Resource), Name: req.Name, Namespace: req.Namespace,
+		Verb: req.Verb, Resource: resource, Group: groupOf(resource),
+		Name: req.Name, Namespace: req.Namespace,
 	})
 
 	return GateView{Gate: s.guard.Check(req.Context, env, action), Permission: perm}, nil
@@ -1251,6 +1253,21 @@ func countPods(a apps.App) int {
 func kubectlFor(req GateRequest) string {
 	return fmt.Sprintf("kubectl %s %s %s -n %s --context %s",
 		req.Verb, req.Resource, req.Name, req.Namespace, req.Context)
+}
+
+// groupOf names the API group a resource lives in. A resource name is only
+// unique within its group, and asking about a core-group "deployments" denies
+// everybody, cluster-admin included, because no such resource exists.
+func groupOf(resource string) string {
+	switch resource {
+	case "deployments", "statefulsets", "daemonsets", "replicasets":
+		return "apps"
+	case "jobs":
+		return "batch"
+	case "cronjobs":
+		return "batch"
+	}
+	return ""
 }
 
 // pluralize turns the resource a dialog names into the one an access review

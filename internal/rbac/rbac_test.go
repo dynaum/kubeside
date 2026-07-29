@@ -224,3 +224,53 @@ func TestConcurrentAsksShareOneReview(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// The cache key is not the sentence.
+//
+// Key() reads like the question so a refusal can be shown to a human, and the
+// browser matches on its prefix. That phrasing is ambiguous by construction:
+// subresource and name are both joined with a slash, so "create pods/exec"
+// describes two different questions. The cache must not treat them as one,
+// because /api/gate takes a caller-supplied name and would otherwise seed the
+// answer that /api/exec reads.
+func TestASubresourceAndANameOfTheSameSpellingAreDifferentQuestions(t *testing.T) {
+	f := &fakeReviewer{allow: map[string]bool{
+		// A developer with a plain "create pods" rule: allowed to create a pod
+		// called anything, including one called exec. Not allowed to exec.
+		"qa|create pods/exec in team-a": true,
+	}}
+	r := New(f)
+
+	named := Action{Verb: "create", Resource: "pods", Name: "exec", Namespace: "team-a"}
+	sub := Action{Verb: "create", Resource: "pods", Subresource: "exec", Namespace: "team-a"}
+
+	r.Can(context.Background(), "qa", named)
+	r.Can(context.Background(), "qa", sub)
+
+	if f.count() != 2 {
+		t.Fatalf("reviews = %d, want 2; the second question reused the first answer", f.count())
+	}
+}
+
+// A resource name is only unique within its API group. Two groups can both
+// have a "deployments", and an answer about one says nothing about the other.
+func TestTheAPIGroupIsPartOfTheQuestion(t *testing.T) {
+	f := &fakeReviewer{}
+	r := New(f)
+
+	r.Can(context.Background(), "qa", Action{Verb: "patch", Resource: "deployments", Group: "apps", Namespace: "team-a"})
+	r.Can(context.Background(), "qa", Action{Verb: "patch", Resource: "deployments", Group: "example.com", Namespace: "team-a"})
+
+	if f.count() != 2 {
+		t.Fatalf("reviews = %d, want 2; two groups shared one answer", f.count())
+	}
+}
+
+// The browser matches capability keys by prefix, so the phrasing is a wire
+// contract as much as a sentence.
+func TestTheDisplayKeyStillReadsLikeTheQuestion(t *testing.T) {
+	got := Action{Verb: "create", Resource: "pods", Subresource: "portforward", Namespace: "team-a"}.Key()
+	if got != "create pods/portforward in team-a" {
+		t.Fatalf("Key() = %q; the UI matches on this prefix", got)
+	}
+}
