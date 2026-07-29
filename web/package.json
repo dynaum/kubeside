@@ -12,6 +12,7 @@
     "site": "node site/build.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "react": "^19.0.0",

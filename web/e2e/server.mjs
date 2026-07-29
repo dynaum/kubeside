@@ -39,6 +39,7 @@ const server = createServer(async (req, res) => {
       case "/api/can": return json(res, fx.capabilities);
       case "/api/forwards": return json(res, fx.forwards);
       case "/api/timeline": return json(res, fx.appDetail.timeline);
+      case "/api/gate": return json(res, fx.gateView);
     }
     res.writeHead(404, { "Content-Type": "application/json" });
     return res.end(`{"error":"no fixture for ${url.pathname}"}`);

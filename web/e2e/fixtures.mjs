@@ -134,3 +134,18 @@ export const capabilities = {
 };
 
 export const forwards = [];
+
+// A break-glass environment with the window shut: what the unlock dialog shows
+// before anybody states a reason.
+export const gateView = {
+  gate: {
+    environment: "prod",
+    risk: "high",
+    policy: "break-glass",
+    permitted: false,
+    require: "break-glass",
+    reason: "prod is behind break-glass; unlock it with a stated reason to act here",
+    blast: { pods: 0, unknown: true },
+  },
+  permission: { allowed: true },
+};

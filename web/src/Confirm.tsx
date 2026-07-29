@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { api, type GateView } from "./api";
 import { envToken } from "./health";
 
@@ -9,6 +10,11 @@ import { envToken } from "./health";
 // confirmation, and for a break-glass environment a stated reason. None of it
 // is security. RBAC is the security boundary and this dialog says so, because a
 // tool that lets somebody confuse the two has taught them something dangerous.
+//
+// It is a Radix dialog for its behaviour: focus trapped and returned, Escape
+// handled, the page behind hidden from assistive technology. This is the screen
+// somebody stands on before acting in production, so being able to Tab out of
+// it into the app behind was the worst place in the product to have that bug.
 
 export function Confirm({
   context, namespace, verb, resource, name, unlockOnly, onCancel, onConfirm,
@@ -30,6 +36,9 @@ export function Confirm({
   const [err, setErr] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
+  const confirmField = useRef<HTMLInputElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   const ask = (unlock?: string) => {
     api.gate(unlockOnly
@@ -51,15 +60,36 @@ export function Confirm({
   const typedOk = !needsTyping || typed === gate?.confirm;
   const ready = Boolean(gate?.permitted && permission?.allowed && typedOk);
 
+  const title = unlockOnly
+    ? `arm ${gate?.environment ?? context} for writes`
+    : `${verb} ${resource} ${name}`;
+
   return (
-    <div className="scrim" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+    <Dialog.Root open onOpenChange={(next) => { if (!next) onCancel(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="scrim" />
+        <Dialog.Content
+          className="dialog"
+          aria-describedby={undefined}
+          style={{ position: "absolute", top: 120, left: "50%", transform: "translateX(-50%)", zIndex: 61 }}
+          onOpenAutoFocus={(e) => {
+            // The typed confirmation is the one thing this dialog wants, so it
+            // gets the caret. Radix would focus the dialog itself.
+            e.preventDefault();
+            opener.current = document.activeElement as HTMLElement | null;
+            (confirmField.current ?? cancel.current)?.focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            opener.current?.focus();
+          }}
+        >
         <div className="dialog-head" data-env={gate ? envToken({ risk: gate.risk }) : "unc"}>
           {/* The environment is named, never inferred from memory. */}
           <span className="env-chip">{gate?.environment ?? "…"}</span>
-          <strong style={{ fontWeight: 600 }}>
-            {unlockOnly ? `arm ${gate?.environment ?? context} for writes` : `${verb} ${resource} ${name}`}
-          </strong>
+          <Dialog.Title asChild>
+            <strong style={{ fontWeight: 600 }}>{title}</strong>
+          </Dialog.Title>
         </div>
 
         <div className="dialog-body">
@@ -106,6 +136,7 @@ export function Confirm({
                     className="field"
                     style={{ width: "100%" }}
                     placeholder="why this needs to happen now"
+                    aria-label="reason for unlocking"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -126,11 +157,13 @@ export function Confirm({
                     Type <code className="mono">{gate.confirm}</code> to confirm.
                   </p>
                   <input
+                    ref={confirmField}
                     className="field"
                     style={{ width: "100%" }}
                     value={typed}
                     onChange={(e) => setTyped(e.target.value)}
                     placeholder={gate.confirm}
+                    aria-label={`type ${gate.confirm} to confirm`}
                   />
                 </>
               )}
@@ -144,14 +177,15 @@ export function Confirm({
         </div>
 
         <div className="dialog-foot">
-          <button className="btn" onClick={onCancel}>{unlockOnly ? "Close" : "Cancel"}</button>
+          <button ref={cancel} className="btn" onClick={onCancel}>{unlockOnly ? "Close" : "Cancel"}</button>
           {!unlockOnly && (
             <button className="btn btn-danger" disabled={!ready} onClick={() => onConfirm(typed)}>
               {verb} {resource}
             </button>
           )}
         </div>
-      </div>
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
