@@ -1341,6 +1341,20 @@ func (s *Service) StartExec(ctx context.Context, req ExecRequest, onOutput func(
 		return nil, nil, &ForbiddenError{Reason: perm.Reason}
 	}
 
+	// The pod is the scope, not a label. A namespace-scoped permission covers
+	// every team sharing that namespace, so without this a caller reaches pods
+	// they never opened and the record lands under whatever workload they
+	// claimed.
+	app, err := s.appOf(connectCtx, req.Context, req.Namespace, req.Workload)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !hasPod(app, req.Pod) {
+		return nil, nil, fmt.Errorf(
+			"pod %s is not part of %s in %s; a shell opens in one workload's pods, not any pod in the namespace",
+			req.Pod, req.Workload, req.Namespace)
+	}
+
 	// Then the guardrail, which is about acting in the wrong window rather
 	// than about authority.
 	env := s.conf.Environment(kctx)
@@ -1363,11 +1377,9 @@ func (s *Service) StartExec(ctx context.Context, req ExecRequest, onOutput func(
 		Context: req.Context, Namespace: req.Namespace, Pod: req.Pod, Container: req.Container,
 	}, onOutput)
 
-	workload := req.Workload
-	if workload == "" {
-		workload = req.Pod
-	}
-	s.live.Record(sessionKey(req.Context, req.Namespace, workload), timeline.Entry{
+	// Filed under the workload the pod actually belongs to, resolved above,
+	// rather than the one the caller named.
+	s.live.Record(sessionKey(req.Context, req.Namespace, app.Key.Name), timeline.Entry{
 		At:     time.Now(),
 		Kind:   timeline.KindExec,
 		Title:  "opened a shell in " + req.Pod,

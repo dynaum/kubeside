@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -207,4 +208,58 @@ func TestARevealIsRecordedEvenWithoutAWorkload(t *testing.T) {
 		}
 	}
 	t.Fatal("a reveal with no workload left no record")
+}
+
+// Exec has the same shape as a forward: the pod is the scope, not a label. A
+// namespace-scoped permission covers every team sharing that namespace, so
+// without this check a caller reaches pods they never opened, and the record
+// lands under whatever workload they claimed.
+func TestExecRefusesAPodOutsideTheNamedWorkload(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	_, _, err := svc.StartExec(context.Background(), ExecRequest{
+		Context: "qa1", Namespace: "team-a", Workload: "checkout",
+		Pod: "someone-elses-pod", Container: "app",
+	}, func([]byte) {})
+	if err == nil {
+		t.Fatal("a pod outside the workload was exec'd into")
+	}
+	if !strings.Contains(err.Error(), "someone-elses-pod") {
+		t.Errorf("err = %q, want the refused pod named", err)
+	}
+}
+
+// The workload on the audit entry is the one the pod resolves into, not a
+// string the caller supplied. With the scope check above in place a mismatched
+// workload is refused outright, so the entry can only ever name the workload
+// the pod is really in.
+func TestAnExecIsRecordedUnderTheWorkloadThePodBelongsTo(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The session cannot dial in a test. The record is written when the session
+	// is accepted, not when the shell exits.
+	_, _, _ = svc.StartExec(ctx, ExecRequest{
+		Context: "qa1", Namespace: "team-a", Workload: "checkout",
+		Pod: "checkout-1", Container: "app",
+	}, func([]byte) {})
+
+	view, err := svc.Timeline("qa1", "team-a", "checkout")
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+	for _, e := range view.Entries {
+		if e.Kind == timeline.KindExec {
+			if !strings.Contains(e.Title, "checkout-1") {
+				t.Errorf("title = %q, want the pod named", e.Title)
+			}
+			return
+		}
+	}
+	t.Fatal("the exec left no record on the workload it opened in")
 }
