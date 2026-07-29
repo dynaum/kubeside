@@ -36,10 +36,18 @@ checksum:
   name_template: checksums.txt
 
 # Homebrew tap reuses the existing dynaum/homebrew-tap repo.
+#
+# Pushing a formula there is a cross-repository write, which the workflow's own
+# GITHUB_TOKEN cannot do. It needs a token with contents:write on the tap, in
+# the TAP_GITHUB_TOKEN secret. Without it the formula is still generated into
+# dist/homebrew/ and simply not uploaded, because a release that fails after
+# building six correct archives helps nobody.
 brews:
-  - repository:
+  - skip_upload: '{{ if .Env.TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}'
+    repository:
       owner: dynaum
       name: homebrew-tap
+      token: '{{ .Env.TAP_GITHUB_TOKEN }}'
     homepage: https://github.com/dynaum/kubeside
     description: A Kubernetes client scoped to the developer, not the cluster operator
     license: Apache-2.0

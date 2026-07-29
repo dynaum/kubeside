@@ -48,3 +48,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Empty until somebody creates a token that may write to the tap. The
+          # formula is generated either way; only the push is skipped.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
