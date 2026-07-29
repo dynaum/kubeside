@@ -350,6 +350,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		Pod:       q.Get("pod"),
 		Container: q.Get("container"),
 		Workload:  q.Get("workload"),
+		Confirm:   q.Get("confirm"),
 	}
 
 	c, err := websocket.Accept(w, r, nil)

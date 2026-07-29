@@ -355,8 +355,9 @@ export const api = {
       `/api/can?context=${encodeURIComponent(context)}&namespace=${encodeURIComponent(namespace)}`,
     ),
   forwards: () => get<ForwardView[]>("/api/forwards"),
-  startForward: (context: string, namespace: string, workload: string, remotePort: number) =>
-    post<ForwardView>("/api/forwards", { context, namespace, workload, remotePort }),
+  startForward: (
+    context: string, namespace: string, workload: string, remotePort: number, confirm?: string,
+  ) => post<ForwardView>("/api/forwards", { context, namespace, workload, remotePort, confirm }),
   stopForward: (id: string) => post<ForwardView[]>("/api/forwards", { stop: id }),
   diff: (context: string, namespace: string, workload: string, other: string) =>
     get<DiffView>(

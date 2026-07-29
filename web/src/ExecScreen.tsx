@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { ContextView, PodView } from "./api";
 import { api } from "./api";
+import { Confirm } from "./Confirm";
 import { envToken } from "./health";
 
 // A shell in a container, proxied through the local server.
@@ -25,6 +26,10 @@ export function ExecScreen({
   const [pods, setPods] = useState<PodView[]>([]);
   const [pod, setPod] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  // What the developer typed, when the environment asks for it. The socket is
+  // not opened until it exists, because the server compares it and would refuse
+  // in a blank terminal, which is the worst place to learn about a refusal.
+  const [confirm, setConfirm] = useState(context.write === "allow" ? "" : null);
 
   useEffect(() => {
     let alive = true;
@@ -42,7 +47,7 @@ export function ExecScreen({
   }, [context.name, namespace, workload]);
 
   useEffect(() => {
-    if (!pod || !mount.current) return;
+    if (!pod || confirm === null || !mount.current) return;
 
     const term = new Terminal({
       fontFamily: "var(--font-mono), monospace",
@@ -58,7 +63,7 @@ export function ExecScreen({
     const t = new URLSearchParams(window.location.search).get("t") ?? "";
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const query = new URLSearchParams({
-      t, context: context.name, namespace, pod, container: "", workload,
+      t, context: context.name, namespace, pod, container: "", workload, confirm,
     });
     const ws = new WebSocket(`${proto}//${window.location.host}/api/exec?${query}`);
     ws.binaryType = "arraybuffer";
@@ -102,10 +107,21 @@ export function ExecScreen({
       ws.close();
       term.dispose();
     };
-  }, [context.name, namespace, workload, pod]);
+  }, [context.name, namespace, workload, pod, confirm]);
 
   return (
     <>
+      {confirm === null && (
+        <Confirm
+          context={context.name}
+          namespace={namespace}
+          verb="exec"
+          resource="pod"
+          name={workload}
+          onCancel={onBack}
+          onConfirm={setConfirm}
+        />
+      )}
       <div className={`topbar env-edge${context.hazard ? " hazard" : ""}`} data-env={envToken(context)}>
         <span className="env-chip">{context.environment}</span>
         <div className="crumb">

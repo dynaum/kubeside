@@ -34,6 +34,7 @@ export function AppDetailScreen({
   const [err, setErr] = useState<string | null>(null);
   const [forwards, setForwards] = useState<ForwardView[]>([]);
   const [forwardErr, setForwardErr] = useState<string | null>(null);
+  const [confirmingForward, setConfirmingForward] = useState(false);
   const [port, setPort] = useState("8080");
   const [can, setCan] = useState<CapabilitiesView | null>(null);
   const [unlocking, setUnlocking] = useState(false);
@@ -68,12 +69,25 @@ export function AppDetailScreen({
     (f) => f.context === context.name && f.namespace === namespace && f.workload === workload,
   );
 
-  const openForward = () => {
+  // A tunnel is a write, so an environment that asks for a typed confirmation
+  // gets one before anything is opened. qa asks for nothing, and putting a
+  // dialog in front of the environment somebody works in all day would make the
+  // ceremony meaningless everywhere else.
+  const openForward = (confirm?: string) => {
     setForwardErr(null);
-    api.startForward(context.name, namespace, workload, Number(port))
+    setConfirmingForward(false);
+    api.startForward(context.name, namespace, workload, Number(port), confirm)
       .then(() => api.forwards())
       .then(setForwards)
       .catch((e) => setForwardErr(String(e.message ?? e)));
+  };
+
+  const startForward = () => {
+    if (context.write === "allow") {
+      openForward();
+      return;
+    }
+    setConfirmingForward(true);
   };
 
   const closeForward = (id: string) => {
@@ -120,7 +134,7 @@ export function AppDetailScreen({
         <span className="rbac">
           <button
             className="btn"
-            onClick={openForward}
+            onClick={startForward}
             disabled={!port || forwardDenied(can) !== null}
             title={forwardDenied(can) ?? "opens a loopback tunnel to a ready replica"}
           >
@@ -141,6 +155,18 @@ export function AppDetailScreen({
         </span>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
       </div>
+
+      {confirmingForward && (
+        <Confirm
+          context={context.name}
+          namespace={namespace}
+          verb="port-forward"
+          resource="pod"
+          name={workload}
+          onCancel={() => setConfirmingForward(false)}
+          onConfirm={openForward}
+        />
+      )}
 
       {unlocking && (
         <Confirm

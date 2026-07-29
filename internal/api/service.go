@@ -896,13 +896,16 @@ func (s *Service) StartForward(req ForwardRequest) (forward.Forward, error) {
 	// ceremony as the ones that look dangerous.
 	kctx, _ := s.cfg.Get(req.Context)
 	gate := s.guard.Check(req.Context, s.conf.Environment(kctx), guard.Action{
-		Verb: "port-forward", Resource: "pod", Name: pod, Namespace: req.Namespace,
+		Verb: "port-forward", Resource: "pod", Name: app.Key.Name, Namespace: req.Namespace,
 		Kubectl: fmt.Sprintf("kubectl port-forward %s %d:%d -n %s --context %s",
 			pod, req.LocalPort, req.RemotePort, req.Namespace, req.Context),
 		Blast: guard.Blast{Pods: 1, Summary: "one port of " + pod},
 	})
 	if !gate.Permitted {
 		return forward.Forward{}, &ForbiddenError{Reason: gate.Reason}
+	}
+	if err := confirmed(gate, req.Confirm); err != nil {
+		return forward.Forward{}, err
 	}
 
 	env := s.envOf(req.Context)
@@ -1221,6 +1224,24 @@ func (s *Service) Gate(req GateRequest) (GateView, error) {
 	return GateView{Gate: s.guard.Check(req.Context, env, action), Permission: perm}, nil
 }
 
+// confirmed enforces the ceremony the gate asked for.
+//
+// The guard names what has to be typed; this compares it. A confirmation the
+// server emits and never reads is a dialog rather than a control, and the
+// distinction matters most for whoever automates around the UI, which is the
+// case the ceremony exists for.
+func confirmed(gate guard.Gate, typed string) error {
+	if gate.Require != guard.RequireTypedName {
+		return nil
+	}
+	if typed == gate.Confirm {
+		return nil
+	}
+	return &ForbiddenError{Reason: fmt.Sprintf(
+		"%s asks you to confirm this by typing %q; %s is not a place to act by accident",
+		gate.Environment, gate.Confirm, gate.Environment)}
+}
+
 // blastRadius counts what an action touches, from the snapshot already in hand.
 //
 // A radius nobody computed renders as unknown rather than as zero: "0 pods
@@ -1310,6 +1331,10 @@ type ExecRequest struct {
 	Pod       string
 	Container string
 	Workload  string
+	// Confirm is what the developer typed. The guard says what it has to
+	// match, and the server compares it: a confirmation the server does not
+	// check is a dialog, not a control.
+	Confirm string
 }
 
 // StartExec opens an interactive session, after both gates agree.
@@ -1359,13 +1384,19 @@ func (s *Service) StartExec(ctx context.Context, req ExecRequest, onOutput func(
 	// than about authority.
 	env := s.conf.Environment(kctx)
 	gate := s.guard.Check(req.Context, env, guard.Action{
-		Verb: "exec", Resource: "pod", Name: req.Pod, Namespace: req.Namespace,
+		// What has to be typed is the workload, not the pod. A pod name is a
+		// hash the developer never chose and cannot be expected to reproduce,
+		// and a ceremony nobody can complete is one everybody routes around.
+		Verb: "exec", Resource: "pod", Name: app.Key.Name, Namespace: req.Namespace,
 		Kubectl: fmt.Sprintf("kubectl exec -it %s -c %s -n %s --context %s -- sh",
 			req.Pod, req.Container, req.Namespace, req.Context),
 		Blast: guard.Blast{Pods: 1, Summary: "one container of " + req.Pod},
 	})
 	if !gate.Permitted {
 		return nil, nil, &ForbiddenError{Reason: gate.Reason}
+	}
+	if err := confirmed(gate, req.Confirm); err != nil {
+		return nil, nil, err
 	}
 
 	session := exec.New(exec.KubeExecutor{

@@ -90,6 +90,7 @@ func degradedService(t *testing.T, client kubernetes.Interface, connectErr error
 		Current: "qa1",
 		Contexts: []kubeconfig.Context{
 			{Name: "qa1", IsCurrent: true, Server: "https://qa", Namespace: "team-a"},
+			{Name: "stg1", Server: "https://stg", Namespace: "team-a"},
 			{Name: "prod1", Server: "https://prod", Namespace: "team-a"},
 		},
 	}

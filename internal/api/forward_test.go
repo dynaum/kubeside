@@ -263,3 +263,99 @@ func TestAnExecIsRecordedUnderTheWorkloadThePodBelongsTo(t *testing.T) {
 	}
 	t.Fatal("the exec left no record on the workload it opened in")
 }
+
+// The typed name was a field the server emitted and never read. The dialog
+// asked for it, the browser rendered it, and anything calling the API directly
+// skipped it — which made it a decoration rather than a control, in exactly the
+// environments a developer asked to be slowed down in.
+//
+// stg1 classifies as staging, whose default write policy is confirm.
+func TestExecInAConfirmEnvironmentNeedsTheNameTyped(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	_, _, err := svc.StartExec(context.Background(), ExecRequest{
+		Context: "stg1", Namespace: "team-a", Workload: "checkout",
+		Pod: "checkout-1", Container: "app",
+	}, func([]byte) {})
+
+	var forbidden *ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("err = %v, want the missing confirmation to refuse it", err)
+	}
+	// The refusal says what to type, because "confirmation required" without
+	// the word is not something anybody can act on.
+	// The workload is what has to be typed: a pod name is a hash nobody chose.
+	if !strings.Contains(err.Error(), `"checkout"`) {
+		t.Errorf("err = %q, want the expected confirmation named", err)
+	}
+}
+
+func TestExecRefusesAConfirmationThatDoesNotMatch(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	_, _, err := svc.StartExec(context.Background(), ExecRequest{
+		Context: "stg1", Namespace: "team-a", Workload: "checkout",
+		Pod: "checkout-1", Container: "app", Confirm: "checkout-1",
+	}, func([]byte) {})
+
+	var forbidden *ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("err = %v; a near-miss confirmation was accepted", err)
+	}
+}
+
+func TestExecProceedsWhenTheNameMatches(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, _, err := svc.StartExec(ctx, ExecRequest{
+		Context: "stg1", Namespace: "team-a", Workload: "checkout",
+		Pod: "checkout-1", Container: "app", Confirm: "checkout",
+	}, func([]byte) {})
+
+	var forbidden *ForbiddenError
+	if errors.As(err, &forbidden) {
+		t.Fatalf("err = %v; the name was typed correctly and it was still refused", err)
+	}
+}
+
+// A tunnel into staging is a write too, and it goes through the same guard, so
+// it asks for the same ceremony.
+func TestForwardInAConfirmEnvironmentNeedsTheNameTyped(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	_, err := svc.StartForward(ForwardRequest{
+		Context: "stg1", Namespace: "team-a", Workload: "checkout", RemotePort: 8080,
+	})
+
+	var forbidden *ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("err = %v, want the missing confirmation to refuse it", err)
+	}
+}
+
+// qa asks for nothing, and adding a dialog to the environment somebody works in
+// all day would make the ceremony meaningless everywhere else.
+func TestNothingIsTypedInAnAllowEnvironment(t *testing.T) {
+	client := degradedCluster()
+	reviews(client, true)
+	svc := degradedService(t, client, nil)
+
+	_, err := svc.StartForward(ForwardRequest{
+		Context: "qa1", Namespace: "team-a", Workload: "checkout", RemotePort: 8080,
+	})
+
+	var forbidden *ForbiddenError
+	if errors.As(err, &forbidden) {
+		t.Fatalf("err = %v; qa asked for a confirmation it should not want", err)
+	}
+}

@@ -22,7 +22,9 @@ export function Confirm({
   // it, rather than confirming a specific action.
   unlockOnly?: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  // The typed name travels with the action. The server compares it, so the
+  // dialog is a control rather than a decoration.
+  onConfirm: (typed: string) => void;
 }) {
   const [view, setView] = useState<GateView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -144,7 +146,7 @@ export function Confirm({
         <div className="dialog-foot">
           <button className="btn" onClick={onCancel}>{unlockOnly ? "Close" : "Cancel"}</button>
           {!unlockOnly && (
-            <button className="btn btn-danger" disabled={!ready} onClick={onConfirm}>
+            <button className="btn btn-danger" disabled={!ready} onClick={() => onConfirm(typed)}>
               {verb} {resource}
             </button>
           )}

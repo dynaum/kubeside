@@ -157,6 +157,8 @@ type ForwardRequest struct {
 	Pod        string `json:"pod,omitempty"`
 	RemotePort int    `json:"remotePort"`
 	LocalPort  int    `json:"localPort,omitempty"`
+	// Confirm is what the developer typed, when the environment asks for it.
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // GateRequest asks what ceremony an action needs in one environment.
