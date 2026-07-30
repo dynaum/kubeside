@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -10,6 +11,17 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
+
+// Releases lists the metadata of the Secrets Helm writes for one release.
+//
+// Metadata only, deliberately. A helm.sh/release.v1 payload is a gzipped
+// release carrying chart values that routinely include real credentials, and
+// this package wants four labels and a creation timestamp. Listing the objects
+// typed would pull every payload across the wire and into the heap to read
+// them, which is a cost and an exposure with nothing on the other side.
+type Releases interface {
+	ListReleases(ctx context.Context, namespace, selector string) ([]metav1.PartialObjectMetadata, error)
+}
 
 // Target is the workload to reconstruct.
 type Target struct {
@@ -32,9 +44,9 @@ type Target struct {
 // rather than returned as an error. A read-only prod role that cannot read
 // secrets still gets rollouts, crashes, and warnings, with one line explaining
 // what Helm history would have added.
-func Reconstruct(ctx context.Context, client kubernetes.Interface, t Target) Timeline {
+func Reconstruct(ctx context.Context, client kubernetes.Interface, releases Releases, t Target) Timeline {
 	var tl Timeline
-	var rollouts, releases, crashes, warnings []Entry
+	var rollouts, releaseEntries, crashes, warnings []Entry
 
 	switch t.Kind {
 	case "Deployment", "Rollout":
@@ -59,15 +71,17 @@ func Reconstruct(ctx context.Context, client kubernetes.Interface, t Target) Tim
 
 	// Helm history is the richest source and the one read-only prod roles most
 	// often exclude, so it is read last and its absence is expected rather than
-	// exceptional. The selector keeps the read to this release's secrets: no
-	// value of any other secret is ever requested.
-	secrets, err := client.CoreV1().Secrets(t.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "owner=helm,name=" + t.Name,
-	})
-	if err != nil {
+	// exceptional. The selector keeps the read to this release's secrets, and
+	// the read is metadata: no secret value is ever requested, of this release
+	// or any other.
+	if releases == nil {
+		// No reader is a wiring failure, not a cluster fact, and it still has to
+		// show as a source that was not read.
+		tl.AddGap("helm", errors.New("release history was not read: no metadata reader for this context"))
+	} else if items, err := releases.ListReleases(ctx, t.Namespace, "owner=helm,name="+t.Name); err != nil {
 		tl.AddGap("helm", describe(err, "secrets"))
 	} else {
-		releases = FromHelmSecrets(secrets.Items, t.Name)
+		releaseEntries = FromHelmSecrets(items, t.Name)
 	}
 
 	if len(t.Pods) > 0 {
@@ -113,7 +127,7 @@ func Reconstruct(ctx context.Context, client kubernetes.Interface, t Target) Tim
 		tl.AddGap("actors", describe(err, strings.ToLower(t.Kind)+"s"))
 	}
 
-	tl.Entries = Merge(rollouts, releases, crashes, warnings)
+	tl.Entries = Merge(rollouts, releaseEntries, crashes, warnings)
 	return tl
 }
 

@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
@@ -69,6 +70,10 @@ type Service struct {
 	// this product does, which is why it goes through the guard and the
 	// permission resolver before a session opens.
 	exec *exec.Session
+	// releases builds the metadata reader Helm history comes from. Injectable so
+	// a test can refuse the read the way a prod role does.
+	releases func(contextName string) timeline.Releases
+
 	// forwards owns every live port-forward. They die with the process, like
 	// everything else kubeside holds.
 	forwards *forward.Manager
@@ -361,7 +366,7 @@ func (s *Service) reconstruct(contextName, namespace, workload string) (Timeline
 		return TimelineView{}, err
 	}
 
-	tl := timeline.Reconstruct(ctx, client, timeline.Target{
+	tl := timeline.Reconstruct(ctx, client, s.releasesFor(contextName), timeline.Target{
 		Namespace: namespace,
 		Name:      workload,
 		Kind:      app.Kind,
@@ -396,6 +401,27 @@ func (s *Service) appOf(ctx context.Context, contextName, namespace, workload st
 		}
 	}
 	return apps.App{}, fmt.Errorf("no workload %q in namespace %q of context %q", workload, namespace, contextName)
+}
+
+// releasesFor builds the metadata reader Helm history is assembled from.
+//
+// A metadata client rather than the typed one, so the apiserver strips release
+// payloads before answering. A context that cannot produce one yields nil,
+// which the reconstruction reports as a missing source rather than treating as
+// an absence of releases.
+func (s *Service) releasesFor(contextName string) timeline.Releases {
+	if s.releases != nil {
+		return s.releases(contextName)
+	}
+	cfg, err := kubeconfig.RESTConfigFor(s.opts, contextName)
+	if err != nil {
+		return timeline.ReleasesUnavailable{Reason: err.Error()}
+	}
+	client, err := metadata.NewForConfig(cfg)
+	if err != nil {
+		return timeline.ReleasesUnavailable{Reason: err.Error()}
+	}
+	return timeline.KubeReleases{Client: client}
 }
 
 // ownerUID is the UID of the app's primary workload, which is how history is

@@ -145,8 +145,8 @@ func TestControllerRevisionsBecomeDeployEntries(t *testing.T) {
 	}
 }
 
-func helmSecret(t *testing.T, name, version, status, created string) corev1.Secret {
-	return corev1.Secret{
+func helmSecret(t *testing.T, name, version, status, created string) metav1.PartialObjectMetadata {
+	return metav1.PartialObjectMetadata{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
 			Namespace:         "team-a",
@@ -155,14 +155,13 @@ func helmSecret(t *testing.T, name, version, status, created string) corev1.Secr
 				"owner": "helm", "name": "checkout", "version": version, "status": status,
 			},
 		},
-		Type: "helm.sh/release.v1",
 	}
 }
 
 // Helm history is the richest source and the one read-only prod roles most
 // often forbid, so it has to work when it is there and degrade loudly when not.
 func TestHelmSecretsBecomeReleaseEntries(t *testing.T) {
-	got := FromHelmSecrets([]corev1.Secret{
+	got := FromHelmSecrets([]metav1.PartialObjectMetadata{
 		helmSecret(t, "sh.helm.release.v1.checkout.v2", "2", "superseded", "2026-07-22T10:00:00Z"),
 		helmSecret(t, "sh.helm.release.v1.checkout.v3", "3", "deployed", "2026-07-24T10:00:00Z"),
 	}, "checkout")
@@ -185,15 +184,15 @@ func TestHelmSecretsOfAnotherReleaseAreIgnored(t *testing.T) {
 	other := helmSecret(t, "sh.helm.release.v1.search.v1", "1", "deployed", "2026-07-24T10:00:00Z")
 	other.Labels["name"] = "search"
 
-	got := FromHelmSecrets([]corev1.Secret{other}, "checkout")
+	got := FromHelmSecrets([]metav1.PartialObjectMetadata{other}, "checkout")
 	if len(got) != 0 {
 		t.Fatalf("entries = %+v, want none for another release", got)
 	}
 }
 
 func TestNonHelmSecretsAreIgnored(t *testing.T) {
-	s := corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "db-password", Namespace: "team-a"}}
-	if got := FromHelmSecrets([]corev1.Secret{s}, "checkout"); len(got) != 0 {
+	s := metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: "db-password", Namespace: "team-a"}}
+	if got := FromHelmSecrets([]metav1.PartialObjectMetadata{s}, "checkout"); len(got) != 0 {
 		t.Fatalf("entries = %+v, want none", got)
 	}
 }

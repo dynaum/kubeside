@@ -50,7 +50,7 @@ func TestReconstructAssemblesEverySource(t *testing.T) {
 		},
 	)
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, target())
 
 	kinds := map[string]int{}
 	for _, e := range tl.Entries {
@@ -73,11 +73,9 @@ func TestReconstructAssemblesEverySource(t *testing.T) {
 func TestForbiddenHelmSecretsDegradeToAGap(t *testing.T) {
 	rs1 := rs(t, "checkout-1", "1", "checkout:1.0.0", "2026-07-20T10:00:00Z", 3)
 	client := fake.NewSimpleClientset(&rs1)
-	client.PrependReactor("list", "secrets", func(ktesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", nil)
-	})
+	releases := &releaseStub{err: apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", nil)}
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, releases, target())
 
 	if len(tl.Entries) == 0 {
 		t.Fatal("a forbidden secret read wiped out the whole timeline")
@@ -96,7 +94,7 @@ func TestForbiddenRolloutsStillLeaveTheOtherSources(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "replicasets"}, "", nil)
 	})
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, target())
 
 	if len(tl.Entries) != 1 || tl.Entries[0].Kind != KindRestart {
 		t.Fatalf("entries = %+v, want the crash that is still readable", tl.Entries)
@@ -122,7 +120,7 @@ func TestStatefulSetUsesControllerRevisions(t *testing.T) {
 	tgt.Name = "web"
 	tgt.Pods = nil
 
-	tl := Reconstruct(context.Background(), client, tgt)
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, tgt)
 	if len(tl.Entries) != 1 || tl.Entries[0].Revision != "7" {
 		t.Fatalf("entries = %+v, want the controller revision", tl.Entries)
 	}
@@ -136,7 +134,7 @@ func TestUnknownKindProducesNoRolloutSource(t *testing.T) {
 	tgt := target()
 	tgt.Kind = "Pod"
 
-	tl := Reconstruct(context.Background(), client, tgt)
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, tgt)
 	if len(tl.Entries) != 1 {
 		t.Fatalf("entries = %+v, want just the crash", tl.Entries)
 	}
@@ -158,7 +156,7 @@ func TestEventsOfOtherObjectsAreIgnored(t *testing.T) {
 		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "search-xyz"},
 	})
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, target())
 	for _, e := range tl.Entries {
 		if e.Kind == KindWarning {
 			t.Fatalf("another app's warning landed here: %+v", e)
@@ -179,7 +177,7 @@ func TestReconstructAttributesARolloutToKubectl(t *testing.T) {
 	}}
 	client := fake.NewSimpleClientset(&rs1, dep)
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, target())
 
 	if len(tl.Entries) != 1 {
 		t.Fatalf("entries = %+v", tl.Entries)
@@ -198,12 +196,59 @@ func TestReconstructWithoutTheWorkloadStillBuildsHistory(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "deployments"}, "checkout", nil)
 	})
 
-	tl := Reconstruct(context.Background(), client, target())
+	tl := Reconstruct(context.Background(), client, &releaseStub{}, target())
 
 	if len(tl.Entries) != 1 {
 		t.Fatalf("entries = %+v, want the rollout regardless", tl.Entries)
 	}
 	if len(tl.Gaps) != 1 || tl.Gaps[0].Source != "actors" {
 		t.Fatalf("gaps = %+v, want one naming attribution", tl.Gaps)
+	}
+}
+
+// releaseStub answers with metadata, and records that it was asked.
+type releaseStub struct {
+	items []metav1.PartialObjectMetadata
+	err   error
+	calls int
+}
+
+func (r *releaseStub) ListReleases(_ context.Context, _, _ string) ([]metav1.PartialObjectMetadata, error) {
+	r.calls++
+	return r.items, r.err
+}
+
+// Helm writes its history into Secrets whose payload is a gzipped release,
+// carrying chart values that routinely include real credentials. This code has
+// only ever wanted four labels and a timestamp off those objects, and listing
+// them typed pulled every payload into memory to read them.
+//
+// Nothing leaked: the payload was never decoded. But the bytes crossed the wire
+// and sat in the heap for no reason at all.
+func TestHelmHistoryAsksForMetadataAndNeverForSecretContents(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	releases := &releaseStub{items: []metav1.PartialObjectMetadata{
+		helmSecret(t, "sh.helm.release.v1.checkout.v3", "3", "deployed", "2026-07-24T10:00:00Z"),
+	}}
+
+	tl := Reconstruct(context.Background(), client, releases, target())
+
+	if releases.calls != 1 {
+		t.Fatalf("release metadata was asked for %d times, want once", releases.calls)
+	}
+	for _, a := range client.Actions() {
+		if a.GetResource().Resource == "secrets" {
+			t.Fatalf("a Secret was read through the typed client: %s %s", a.GetVerb(), a.GetResource().Resource)
+		}
+	}
+
+	var found bool
+	for _, e := range tl.Entries {
+		if e.Kind == KindRelease && e.Revision == "3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the release history did not survive the switch to metadata")
 	}
 }

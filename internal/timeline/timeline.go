@@ -216,7 +216,7 @@ func FromControllerRevisions(revs []appsv1.ControllerRevision, owner types.UID) 
 //
 // The labels carry everything the axis needs, so the gzipped release payload is
 // never decoded: less to go wrong, and nothing sensitive is touched.
-func FromHelmSecrets(secrets []corev1.Secret, release string) []Entry {
+func FromHelmSecrets(secrets []metav1.PartialObjectMetadata, release string) []Entry {
 	var entries []Entry
 	for _, s := range secrets {
 		if s.Labels["owner"] != "helm" || s.Labels["name"] != release {

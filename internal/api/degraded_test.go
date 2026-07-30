@@ -10,6 +10,7 @@ import (
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
+	"github.com/dynaum/kubeside/internal/timeline"
 	appsv1 "k8s.io/api/apps/v1"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,15 @@ import (
 //
 // The rule under all of them: absence of knowledge and absence of a thing are
 // different facts, and kubeside never renders one as the other.
+
+// refusedReleases is a prod role that cannot read secrets, which is the common
+// shape and the reason Helm history is expected to be missing rather than
+// exceptional.
+type refusedReleases struct{}
+
+func (refusedReleases) ListReleases(context.Context, string, string) ([]metav1.PartialObjectMetadata, error) {
+	return nil, apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", nil)
+}
 
 // degradedCluster is a normal small cluster the reactors below then break in
 // one specific way.
@@ -318,10 +328,12 @@ func TestARefusedRevealNeverReadsTheSecret(t *testing.T) {
 // timeline renders from everything else and names what is missing.
 func TestForbiddenHelmHistoryBecomesALabelledGapNotAFailure(t *testing.T) {
 	client := degradedCluster()
-	client.PrependReactor("list", "secrets", func(ktesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", nil)
-	})
 	svc := degradedService(t, client, nil)
+	// Helm history is read as object metadata now, so refusing it means refusing
+	// that read rather than a typed Secret list.
+	svc.releases = func(string) timeline.Releases {
+		return refusedReleases{}
+	}
 
 	view, err := svc.Timeline("qa1", "team-a", "checkout")
 	if err != nil {
