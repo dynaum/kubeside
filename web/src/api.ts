@@ -346,6 +346,11 @@ export const api = {
     verb: string;
     resource: string;
     name: string;
+    // The target, when it is known before the action runs. It is what turns the
+    // dialog's equivalent command into one that would actually work.
+    pod?: string;
+    container?: string;
+    remotePort?: number;
     unlock?: string;
   }) => post<GateView>("/api/gate", req),
   can: (context: string, namespace: string) =>

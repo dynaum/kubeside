@@ -110,13 +110,16 @@ export function ExecScreen({
 
   return (
     <>
-      {confirm === null && (
+      {/* Waits for the pod. The dialog's equivalent command names it, and a
+          dialog that opened a moment earlier would have had nothing to name. */}
+      {confirm === null && pod !== "" && (
         <Confirm
           context={context.name}
           namespace={namespace}
           verb="exec"
           resource="pod"
           name={workload}
+          pod={pod}
           onCancel={onBack}
           onConfirm={setConfirm}
         />

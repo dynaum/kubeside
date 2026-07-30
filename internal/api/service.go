@@ -1287,9 +1287,33 @@ func countPods(a apps.App) int {
 
 // kubectlFor renders the equivalent command, which is how somebody checks the
 // tool's understanding against their own before agreeing to it.
+//
+// Two verbs do not fit the generic shape. "kubectl exec pod checkout" is not a
+// command, and neither is a port-forward without a port, so each is rendered
+// properly or not at all. A line that would error teaches the opposite of what
+// this line is for.
 func kubectlFor(req GateRequest) string {
-	return fmt.Sprintf("kubectl %s %s %s -n %s --context %s",
-		req.Verb, req.Resource, req.Name, req.Namespace, req.Context)
+	where := fmt.Sprintf("-n %s --context %s", req.Namespace, req.Context)
+
+	switch req.Verb {
+	case "exec":
+		if req.Pod == "" {
+			return ""
+		}
+		container := ""
+		if req.Container != "" {
+			container = fmt.Sprintf(" -c %s", req.Container)
+		}
+		return fmt.Sprintf("kubectl exec -it %s%s %s -- sh", req.Pod, container, where)
+
+	case "port-forward":
+		if req.Pod == "" || req.RemotePort == 0 {
+			return ""
+		}
+		return fmt.Sprintf("kubectl port-forward %s %d %s", req.Pod, req.RemotePort, where)
+	}
+
+	return fmt.Sprintf("kubectl %s %s %s %s", req.Verb, req.Resource, req.Name, where)
 }
 
 // groupOf names the API group a resource lives in. A resource name is only

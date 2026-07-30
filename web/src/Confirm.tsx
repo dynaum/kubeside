@@ -17,13 +17,18 @@ import { envToken } from "./health";
 // it into the app behind was the worst place in the product to have that bug.
 
 export function Confirm({
-  context, namespace, verb, resource, name, unlockOnly, onCancel, onConfirm,
+  context, namespace, verb, resource, name, pod, container, unlockOnly, onCancel, onConfirm,
 }: {
   context: string;
   namespace: string;
   verb: string;
   resource: string;
   name: string;
+  // The pod and container, where the caller already knows which one the action
+  // will touch. Without them no equivalent command is shown, which is the
+  // honest answer for an action whose target is chosen as it runs.
+  pod?: string;
+  container?: string;
   // unlockOnly is somebody arming an environment before deciding what to do in
   // it, rather than confirming a specific action.
   unlockOnly?: boolean;
@@ -43,7 +48,7 @@ export function Confirm({
   const ask = (unlock?: string) => {
     api.gate(unlockOnly
       ? { context, namespace, verb: "", resource: "", name: "", unlock }
-      : { context, namespace, verb, resource, name, unlock })
+      : { context, namespace, verb, resource, name, pod, container, unlock })
       .then(setView)
       .catch((e) => setErr(String(e.message ?? e)));
   };
@@ -105,8 +110,12 @@ export function Confirm({
                   <>
                     <dt>Affects</dt>
                     <dd>{gate.blast.unknown ? "not computed" : (gate.blast.summary || `${gate.blast.pods} pods`)}</dd>
-                    <dt>Equivalent</dt>
-                    <dd>{gate.kubectl}</dd>
+                    {gate.kubectl && (
+                      <>
+                        <dt>Equivalent</dt>
+                        <dd>{gate.kubectl}</dd>
+                      </>
+                    )}
                   </>
                 )}
                 {gate.unlockedUntil && (

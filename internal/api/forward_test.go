@@ -359,3 +359,49 @@ func TestNothingIsTypedInAnAllowEnvironment(t *testing.T) {
 		t.Fatalf("err = %v; qa asked for a confirmation it should not want", err)
 	}
 }
+
+// The equivalent command exists so a developer can check the tool's
+// understanding against their own before agreeing to something. A line that
+// would error teaches the opposite, and "kubectl exec pod checkout" is not a
+// command anybody can run.
+func TestTheEquivalentCommandRuns(t *testing.T) {
+	cases := []struct {
+		name string
+		req  GateRequest
+		want string
+	}{
+		{
+			"exec names the pod and asks for a tty",
+			GateRequest{Context: "stg1", Namespace: "team-a", Verb: "exec", Resource: "pod", Name: "checkout", Pod: "checkout-1", Container: "app"},
+			"kubectl exec -it checkout-1 -c app -n team-a --context stg1 -- sh",
+		},
+		{
+			"port-forward names the pod and the port",
+			GateRequest{Context: "stg1", Namespace: "team-a", Verb: "port-forward", Resource: "pod", Name: "checkout", Pod: "checkout-1", RemotePort: 8080},
+			"kubectl port-forward checkout-1 8080 -n team-a --context stg1",
+		},
+		{
+			"delete is the shape the generic form already fits",
+			GateRequest{Context: "stg1", Namespace: "team-a", Verb: "delete", Resource: "pod", Name: "checkout-1"},
+			"kubectl delete pod checkout-1 -n team-a --context stg1",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := kubectlFor(c.req); got != c.want {
+				t.Errorf("kubectlFor()\n got %q\nwant %q", got, c.want)
+			}
+		})
+	}
+}
+
+// Where the target is only chosen as the action runs, there is no command to
+// show. Saying nothing beats printing something wrong.
+func TestNoEquivalentIsClaimedWhenTheTargetIsNotKnownYet(t *testing.T) {
+	got := kubectlFor(GateRequest{
+		Context: "stg1", Namespace: "team-a", Verb: "port-forward", Resource: "pod", Name: "checkout",
+	})
+	if got != "" {
+		t.Errorf("kubectlFor() = %q; the pod is picked when the tunnel opens, so no command can be shown", got)
+	}
+}

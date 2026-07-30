@@ -170,6 +170,14 @@ type GateRequest struct {
 	Name      string `json:"name"`
 	// Unlock, when set, arms the environment with this reason before answering.
 	Unlock string `json:"unlock,omitempty"`
+
+	// Pod, Container and RemotePort are what the equivalent command needs to be
+	// a command. They are optional: a port-forward picks its pod as the tunnel
+	// opens, so the dialog that precedes it cannot name one, and then no
+	// equivalent is shown rather than a wrong one.
+	Pod        string `json:"pod,omitempty"`
+	Container  string `json:"container,omitempty"`
+	RemotePort int    `json:"remotePort,omitempty"`
 }
 
 // GateView is the answer, with everything a confirmation dialog must show:
