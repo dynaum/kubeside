@@ -155,11 +155,17 @@ already enough of.
 
 ## Status
 
-Feature-complete for v1.0 and unreleased. The app list, whole-workload logs, the
-reconstructed timeline, resolved configuration, cross-environment diff, the
-promotion matrix, port-forward, the command palette, prod guardrails, and exec
-are built, tested, and driven against real clusters. No version is tagged yet,
-so the Homebrew line above starts working with the first release.
+Released. The app list, whole-workload logs, the reconstructed timeline,
+resolved configuration, cross-environment diff, the promotion matrix,
+port-forward, the command palette, prod guardrails, and exec are built, tested,
+and driven against real clusters.
+
+Before v1.0.0 a security review went over the write paths, the local server, and
+the two claims this README makes loudest. Everything it found is fixed: the
+port-forward path now asks the cluster and the guard before it dials, the
+permission cache can no longer answer a question it was not asked, the session
+token is handed over once instead of living in your browser history, and the
+secret fingerprint is keyed so it cannot confirm a guessed value.
 
 ## Documentation
 

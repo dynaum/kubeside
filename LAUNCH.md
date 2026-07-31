@@ -29,25 +29,29 @@ already compares against, so it cannot drift from the product without failing a
 test. `npm --prefix web run test` checks that every document became a page and
 that no internal link points at nothing.
 
-## 2. Cut the release
+## 2. Releases
 
-Nothing publishes without a tag, and the GoReleaser release is created as a
-draft, so tagging is safe and reversible up to the moment you press publish.
+v1.0.0 is out. Cutting the next one is a tag:
 
 ```
-git tag -a v1.0.0 -m "v1.0.0"
-git push origin v1.0.0
-gh run watch                       # the release workflow builds the UI first
-gh release view v1.0.0             # a draft: read the notes before publishing
+git tag -a v1.0.1 -m "v1.0.1" && git push origin v1.0.1
+gh run watch                       # builds the UI, then the six archives
+gh release view v1.0.1             # a draft until you publish it
+gh release edit v1.0.1 --draft=false
 ```
 
-Publishing pushes a formula to `dynaum/homebrew-tap`, which is what makes
-`brew install dynaum/tap/kubeside` in the README true. Until then that line is
-marked as pending, and the README says so.
+One thing is not automatic yet, and it fails quietly. The Homebrew formula lives
+in another repository, so GoReleaser needs a token with `contents: write` on
+`dynaum/homebrew-tap`, in the `TAP_GITHUB_TOKEN` secret. Without it the formula
+is generated and the push is skipped, which means a new release ships while
+`brew install` keeps handing out the previous version and nothing looks wrong.
 
-Before publishing, run the binary once from the artifact on a machine that is
-not this one. The release workflow verifies the UI reached the binary; it does
-not verify that a downloaded archive opens on a Mac with Gatekeeper.
+Until that secret exists, update `Formula/kubeside.rb` in the tap by hand from
+the release's own `checksums.txt`.
+
+Before publishing, run the binary once from the archive on a machine that is not
+this one. The release workflow verifies the UI reached the binary; it does not
+verify that a downloaded archive opens on a Mac with Gatekeeper.
 
 ## 3. Post
 
