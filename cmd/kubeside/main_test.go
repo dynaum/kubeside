@@ -21,6 +21,47 @@ func cfg() *kubeconfig.Config {
 	}
 }
 
+// Asking for help is not a failure. It exits 0 and writes to stdout, so
+// `kubeside --help | less` works and a wrapper script does not abort.
+func TestHelpSucceedsAndWritesUsageToStdout(t *testing.T) {
+	var out, errOut strings.Builder
+	if err := run([]string{"--help"}, &out, &errOut); err != nil {
+		t.Fatalf("run --help: %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "Usage of kubeside:") {
+		t.Fatalf("usage did not reach stdout, got %q", out.String())
+	}
+	if errOut.String() != "" {
+		t.Fatalf("help wrote to stderr: %q", errOut.String())
+	}
+}
+
+// --serve is post-v1 in docs/06-roadmap.md. A flag whose only behaviour is an
+// error should not be listed as if it were an option.
+func TestHelpDoesNotAdvertiseServe(t *testing.T) {
+	var out, errOut strings.Builder
+	if err := run([]string{"--help"}, &out, &errOut); err != nil {
+		t.Fatalf("run --help: %v", err)
+	}
+	if strings.Contains(out.String(), "serve") {
+		t.Fatalf("usage still advertises -serve:\n%s", out.String())
+	}
+}
+
+func TestServeIsNotAFlag(t *testing.T) {
+	var out, errOut strings.Builder
+	err := run([]string{"--serve"}, &out, &errOut)
+	if err == nil {
+		t.Fatal("run --serve: nil error, want an unknown-flag error")
+	}
+	if !strings.Contains(err.Error(), "not defined") {
+		t.Fatalf("run --serve: %v, want an unknown-flag error", err)
+	}
+	if !strings.Contains(errOut.String(), "Usage of kubeside:") {
+		t.Fatalf("a bad flag printed no usage, got %q", errOut.String())
+	}
+}
+
 func TestFilterContextsEmptyKeepsEverything(t *testing.T) {
 	got, err := filterContexts(cfg(), "")
 	if err != nil {

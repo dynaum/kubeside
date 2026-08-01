@@ -36,9 +36,10 @@ func main() {
 
 func run(args []string, out, errOut io.Writer) error {
 	fs := flag.NewFlagSet("kubeside", flag.ContinueOnError)
-	fs.SetOutput(errOut)
+	// Usage is rendered by hand below, so help can reach stdout while a genuine
+	// parse error still reaches stderr.
+	fs.SetOutput(io.Discard)
 	showVersion := fs.Bool("version", false, "print version and exit")
-	serve := fs.Bool("serve", false, "run in-cluster as a team web UI")
 	print := fs.Bool("print", false, "print the app list to the terminal and exit, instead of opening the UI")
 	noOpen := fs.Bool("no-open", false, "start the web UI but do not open a browser")
 	port := fs.Int("port", 7654, "port for the local web UI")
@@ -49,14 +50,20 @@ func run(args []string, out, errOut io.Writer) error {
 	configPath := fs.String("config", "", "explicit config file path (default: $"+config.EnvVar+", else ~/.config/kubeside/config.yaml)")
 
 	if err := fs.Parse(args); err != nil {
+		// Asking for help is not a failure. Usage goes to stdout and the exit
+		// code stays 0, so piping it works and a wrapper script does not abort.
+		if errors.Is(err, flag.ErrHelp) {
+			fs.SetOutput(out)
+			fs.Usage()
+			return nil
+		}
+		fs.SetOutput(errOut)
+		fs.Usage()
 		return err
 	}
 	if *showVersion {
 		fmt.Fprintln(out, version.String())
 		return nil
-	}
-	if *serve {
-		return fmt.Errorf("--serve is not implemented yet; see docs/06-roadmap.md")
 	}
 
 	// --profile only sets the environment inherited by credential plugins.

@@ -48,8 +48,12 @@ file. Stop the process and nothing is left behind.
 | `--profile` | unset | Sets `AWS_PROFILE` for exec credential plugins. Your kubeconfig is never edited. |
 | `--timeout` | `15s` | Per-cluster connect and fetch timeout. |
 | `--version` | | Print the version and exit. |
+| `--help` | | Print this table and exit 0. |
 
-`--serve`, the in-cluster team dashboard, is reserved and not implemented yet.
+`--serve`, the in-cluster team dashboard, is not a flag yet. It is
+[beyond v1](https://github.com/dynaum/kubeside/blob/main/docs/06-roadmap.md).
+Until it exists, kubeside rejects it rather than listing an option that only
+returns an error.
 
 ## The terminal check
 
