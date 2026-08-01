@@ -11,6 +11,10 @@
   --t-fast: 90ms; --t-base: 160ms; --t-slow: 280ms;
   --ease: cubic-bezier(.2, .6, .3, 1);
   --row-h: 34px; --rail-w: 216px;
+  /* The text-size multiplier. Set on the root element from the stored
+   * preference; 1 is the scale the design system specifies. The seven sizes
+   * that derive from it arrive with the type scale. */
+  --scale: 1;
 }
 :root, [data-theme="dark"] {
   --bg: #0A0E10; --surface: #101619; --raised: #161E22; --overlay: #1B252A;
@@ -31,6 +35,29 @@
   --focus: #1F5E9E;
   --shadow: 0 1px 2px rgba(60,50,30,.10), 0 10px 30px -10px rgba(60,50,30,.22);
   --hatch-a: rgba(163,47,43,.13); --hatch-b: rgba(163,47,43,0);
+}
+/* The system's answer, before any JavaScript has run.
+ *
+ * The Content-Security-Policy forbids inline scripts, so nothing can set
+ * data-theme in the head. Without this block a developer on a light desktop
+ * would watch the product paint dark and then correct itself on every launch.
+ * CSS answers first; prefs.ts then pins the resolved value and this stops
+ * mattering until the next launch.
+ *
+ * Byte-identical to the block above by necessity, and tokens.test.ts fails the
+ * build if the two ever drift, because a contrast failure that exists in only
+ * one of them is the worst kind. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #F4F2ED; --surface: #FAF9F5; --raised: #FFFFFF; --overlay: #FFFFFF;
+    --line: #D9D4C9; --line-soft: #E8E4DB;
+    --fg: #141B1F; --fg-2: #536168; --fg-3: #7C8A91; --fg-4: #A7B1B6;
+    --ok: #1E7A55; --warn: #8A5D0B; --err: #B02A26; --info: #1F5E9E; --unknown: #6B7C85;
+    --env-qa: #0F766E; --env-stg: #8A6210; --env-prod: #A32F2B; --env-unc: #6D4CB0;
+    --focus: #1F5E9E;
+    --shadow: 0 1px 2px rgba(60,50,30,.10), 0 10px 30px -10px rgba(60,50,30,.22);
+    --hatch-a: rgba(163,47,43,.13); --hatch-b: rgba(163,47,43,0);
+  }
 }
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; }

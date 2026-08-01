@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api, type AppView, type ContextView } from "./api";
-import { commands, groups, move, search, split, type Command } from "./commands";
+import { commands, groups, move, search, split, type Action, type Command } from "./commands";
 import type { Route } from "./route";
 import { healthClass } from "./health";
 
@@ -18,7 +18,7 @@ import { healthClass } from "./health";
 // command rather than nothing at all.
 
 export function Palette({
-  open, contexts, current, route, onClose, onRun,
+  open, contexts, current, route, onClose, onRun, onAction,
 }: {
   open: boolean;
   contexts: ContextView[];
@@ -26,6 +26,7 @@ export function Palette({
   route: Route;
   onClose: () => void;
   onRun: (route: Route) => void;
+  onAction: (action: Action) => void;
 }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
@@ -58,9 +59,13 @@ export function Palette({
   const matches = useMemo(() => search(all, query), [all, query]);
   const selected = matches[Math.min(index, Math.max(matches.length - 1, 0))];
 
+  // A command either goes somewhere or changes something. Settings close the
+  // palette like everything else: seeing the result is the confirmation, and a
+  // panel that stayed open would be a settings screen by accident.
   const run = (c?: Command) => {
     if (!c) return;
-    onRun(c.route);
+    if (c.action) onAction(c.action);
+    else if (c.route) onRun(c.route);
     onClose();
   };
 

@@ -9,7 +9,10 @@ export default defineConfig({
   // default vitest glob matches *.spec.ts anywhere, which is exactly the
   // Playwright naming convention.
   test: {
-    include: ["src/**/*.test.ts", "site/**/*.test.mjs"],
+    // .mjs beside the source too: a test that reads a file off disk needs node
+    // APIs, which the app's tsconfig does not carry. Leaving the pattern out
+    // does not fail, it silently collects nothing.
+    include: ["src/**/*.test.ts", "src/**/*.test.mjs", "site/**/*.test.mjs"],
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
   },
   plugins: [react()],

@@ -11,12 +11,16 @@ import { PromotionScreen } from "./PromotionScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 import { Palette } from "./Palette";
+import { usePrefs } from "./usePrefs";
 
 export function App() {
   const [contexts, setContexts] = useState<ContextView[] | null>(null);
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   const [err, setErr] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
+  // Theme and text size. Applied to the document root, remembered in the
+  // browser, and reachable from the palette and the keyboard.
+  const { run: runSetting } = usePrefs();
 
   // cmd+k is the reflex somebody arrives with. Ctrl+k is the same reflex on a
   // keyboard without a command key.
@@ -102,6 +106,7 @@ export function App() {
         route={route}
         onClose={() => setPalette(false)}
         onRun={go}
+        onAction={runSetting}
       />
       <Rail
         contexts={contexts}

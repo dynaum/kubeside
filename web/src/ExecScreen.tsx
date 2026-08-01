@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { ContextView, PodView } from "./api";
 import { api } from "./api";
 import { Confirm } from "./Confirm";
+import { termFontSize, termThemeOf } from "./term";
 import { envToken } from "./health";
 
 // A shell in a container, proxied through the local server.
@@ -23,6 +24,28 @@ export function ExecScreen({
   onBack: () => void;
 }) {
   const mount = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+
+  // The terminal repaints when the theme or the text size changes, without the
+  // session noticing. Watching the root element rather than taking the
+  // preference as a prop covers the case nothing else would: a desktop that
+  // flips to light at sunset while somebody is holding a shell open.
+  useEffect(() => {
+    const root = document.documentElement;
+    const repaint = () => {
+      const term = termRef.current;
+      if (!term) return;
+      term.options.theme = termThemeOf(root);
+      term.options.fontSize = termFontSize(root);
+      // The character cell just changed size, so the pty needs the new
+      // dimensions or the shell keeps wrapping at the old width.
+      fitRef.current?.fit();
+    };
+    const observer = new MutationObserver(repaint);
+    observer.observe(root, { attributeFilter: ["data-theme", "style"] });
+    return () => observer.disconnect();
+  }, []);
   const [pods, setPods] = useState<PodView[]>([]);
   const [pod, setPod] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -49,13 +72,16 @@ export function ExecScreen({
   useEffect(() => {
     if (!pod || confirm === null || !mount.current) return;
 
+    const root = document.documentElement;
     const term = new Terminal({
       fontFamily: "var(--font-mono), monospace",
-      fontSize: 12,
-      theme: { background: "#0A0E10", foreground: "#DEE7EA", cursor: "#DEE7EA" },
+      fontSize: termFontSize(root),
+      theme: termThemeOf(root),
       cursorBlink: true,
     });
+    termRef.current = term;
     const fit = new FitAddon();
+    fitRef.current = fit;
     term.loadAddon(fit);
     term.open(mount.current);
     fit.fit();
@@ -105,6 +131,8 @@ export function ExecScreen({
       typed.dispose();
       ws.close();
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, [context.name, namespace, workload, pod, confirm]);
 
