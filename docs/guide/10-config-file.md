@@ -49,6 +49,7 @@ defaults:
   namespaces: []            # empty means probe: try listing, else the context's
                             # own namespace
   metrics: auto             # auto | metrics-server | prometheus | none
+                            # prometheus is reserved and reports unavailable
 
 namespaceAxis:
   # When one cluster holds several environments distinguished by a namespace

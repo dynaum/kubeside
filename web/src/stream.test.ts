@@ -5,7 +5,7 @@ import type { AppView, AppsView } from "./api";
 function app(namespace: string, name: string, health: string): AppView {
   return {
     namespace, name, health,
-    kind: "Deployment", reason: "", detail: "", groupedBy: "label", ready: "1/1", objects: 1, pods: 1, restarts: 0,
+    kind: "Deployment", reason: "", detail: "", groupedBy: "label", ready: "1/1", objects: 1, pods: 1, restarts: 0, measured: 0,
   };
 }
 

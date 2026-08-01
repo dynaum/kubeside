@@ -23,6 +23,8 @@ const apps = [
     groupedBy: "recommended-labels", ready: "0/2", objects: 4,
     image: "ghcr.io/acme/search-indexer:2.1.0-rc4", tag: "2.1.0-rc4",
     revisionAt: "2026-07-25T02:48:00Z", pods: 2, restarts: 0,
+    // The image never pulled, so no container is running to measure.
+    cpuMilli: 0, memoryBytes: 0, measured: 0,
   },
   {
     // Never scheduled, so no pod exists and the restart column shows a dash
@@ -32,12 +34,14 @@ const apps = [
     groupedBy: "workload-name", ready: "", objects: 1,
     image: "ghcr.io/acme/billing:1.9.0", tag: "1.9.0",
     revisionAt: "2026-07-19T03:00:00Z", pods: 0, restarts: 0,
+    cpuMilli: 0, memoryBytes: 0, measured: 0,
   },
   {
     namespace: "team-a", name: "checkout", kind: "Deployment", health: "healthy",
     reason: "", detail: "", groupedBy: "recommended-labels", ready: "4/4", objects: 6,
     image: "ghcr.io/acme/checkout:1.4.2", tag: "1.4.2",
     revisionAt: "2026-07-23T03:00:00Z", pods: 4, restarts: 0,
+    cpuMilli: 340, memoryBytes: 1_476_395_008, measured: 4,
   },
   {
     // 5/6 hides the replica that has died fourteen times. The restart column is
@@ -47,6 +51,8 @@ const apps = [
     groupedBy: "recommended-labels", ready: "5/6", objects: 8,
     image: "ghcr.io/acme/payments:3.2.1", tag: "3.2.1",
     revisionAt: "2026-07-25T01:30:00Z", pods: 6, restarts: 14,
+    // One replica is down, so the total is built from five of six.
+    cpuMilli: 1210, memoryBytes: 872_415_232, measured: 5,
   },
 ];
 

@@ -55,8 +55,16 @@ so you do not conclude the cluster has no CronJobs.
 metrics: unavailable · metrics-server is not installed
 ```
 
-Install metrics-server, point at Prometheus in the config, or read the rest
-without them. A zero is never shown for a reading nobody took.
+Install metrics-server, or read the rest without them. A zero is never shown for
+a reading nobody took. `metrics: prometheus` is accepted in the config file and
+not implemented, so it reports unavailable rather than pretending.
+
+## A usage number ends in an asterisk
+
+Fewer of the app's pods reported than it has. Hover for the count. The usual
+cause is a replica that is not running: a crash-looping or pending pod reports
+nothing, so the total covers the replicas still up. It is a real number about
+part of the app, not the app's usage.
 
 ## The timeline starts recently
 

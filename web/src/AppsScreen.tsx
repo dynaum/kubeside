@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { type AppsView, type AppView, type ContextView } from "./api";
 import { Glyph } from "./Status";
 import { envToken } from "./health";
-import { restartCell, revisionAge, tagCell } from "./rows";
+import { cpuCell, memCell, restartCell, revisionAge, tagCell, usageNote } from "./rows";
 import { useApps, type Liveness } from "./stream";
 
 const ATTENTION: Record<string, number> = {
@@ -95,6 +95,10 @@ function Body({
   onOpenApp: (namespace: string, workload: string) => void;
 }) {
   const now = useMinuteTick();
+  // No source, no columns. The header already says which source answered and
+  // why it did not, so an empty column would repeat the bad news in a worse
+  // place. A zero would be a reading nobody took.
+  const usage = view.metrics?.available ?? false;
 
   if (!hasData(view.state)) {
     return (
@@ -137,6 +141,8 @@ function Body({
             <th>Tag</th>
             <th className="r">Age</th>
             <th className="r" title="container restarts across this app's pods, for the lifetime of those pods">Restarts</th>
+            {usage && <th className="r">CPU</th>}
+            {usage && <th className="r">Memory</th>}
             <th>Why</th>
             <th></th>
           </tr>
@@ -171,6 +177,7 @@ function Body({
                 {revisionAge(a.revisionAt, now)}
               </td>
               <td className="r mono"><Restarts pods={a.pods} restarts={a.restarts} /></td>
+              {usage && <Usage app={a} />}
               <td className="dim" style={{ fontSize: 11, whiteSpace: "normal" }}>
                 {a.health === "healthy" ? "" : a.detail}
               </td>
@@ -181,6 +188,25 @@ function Body({
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+// Usage summed across the app's replicas, which is the number to compare with
+// the limit set on the workload. A total built from fewer pods than the app has
+// says so, because three of four replicas is not the app's usage.
+function Usage({ app }: { app: AppView }) {
+  const note = usageNote(app.measured, app.pods);
+  const title = note || undefined;
+  return (
+    <>
+      <td className={`r mono${app.measured > 0 ? "" : " dim"}`} title={title}>
+        {cpuCell(app.measured, app.cpuMilli ?? 0)}
+        {note && <span className="dim">*</span>}
+      </td>
+      <td className={`r mono${app.measured > 0 ? "" : " dim"}`} title={title}>
+        {memCell(app.measured, app.memoryBytes ?? 0)}
+      </td>
     </>
   );
 }

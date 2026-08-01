@@ -27,6 +27,14 @@ test("apps list", async ({ page }) => {
   await expect(payments).toContainText("14");
   // Never scheduled, so no pod was read and no restart count was measured.
   await expect(page.locator("table.tbl tbody tr", { hasText: "billing" })).toContainText("—");
+  // The header claims a metrics source, so the columns behind that claim exist.
+  // They did not for the whole of v1.0.
+  await expect(page.locator("table.tbl thead")).toContainText("CPU");
+  await expect(page.locator("table.tbl tbody tr", { hasText: "checkout" })).toContainText("340m");
+  await expect(page.locator("table.tbl tbody tr", { hasText: "checkout" })).toContainText("1.4Gi");
+  // Five of six replicas reported, so the total is marked as partial rather
+  // than passed off as the app's usage.
+  await expect(payments.locator("td", { hasText: "1210m" })).toHaveAttribute("title", "5 of 6 pods reported");
   await expect(page).toHaveScreenshot("apps.png", { fullPage: true });
 });
 

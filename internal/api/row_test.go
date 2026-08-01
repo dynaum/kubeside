@@ -14,7 +14,7 @@ func rowSnap(list ...apps.App) clusters.Snapshot {
 
 func rowOf(t *testing.T, a apps.App) AppView {
 	t.Helper()
-	got := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{})
+	got := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{}, nil)
 	if len(got.Apps) != 1 {
 		t.Fatalf("apps = %d, want 1", len(got.Apps))
 	}
@@ -175,8 +175,8 @@ func TestUnchangedClusterProducesNoPatchAsTimePasses(t *testing.T) {
 		},
 	}
 
-	first := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{})
-	second := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{})
+	first := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{}, nil)
+	second := AppsFromSnapshot(rowSnap(a), "live", MetricsInfo{}, nil)
 
 	if _, changed := diffApps(first, second); changed {
 		t.Fatal("an unchanged cluster produced a patch; a row field is following the clock")

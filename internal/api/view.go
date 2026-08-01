@@ -7,6 +7,7 @@ import (
 	"github.com/dynaum/kubeside/internal/apps"
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/guard"
+	"github.com/dynaum/kubeside/internal/metrics"
 	"github.com/dynaum/kubeside/internal/promotion"
 	"github.com/dynaum/kubeside/internal/rbac"
 	"github.com/dynaum/kubeside/internal/resolved"
@@ -263,18 +264,37 @@ type AppView struct {
 	// nobody measured.
 	Pods     int32 `json:"pods"`
 	Restarts int32 `json:"restarts"`
+
+	// What the app's replicas are using right now, summed, which is the number
+	// to compare against the limit set on the workload.
+	//
+	// Measured is how many pods reported. Zero means no column, because a
+	// source that has not answered for this app yet is not an app using
+	// nothing. A measured zero is a real reading and renders as one; that
+	// distinction is the whole reason this is a count and not a bool.
+	//
+	// Usage follows the cluster, so a busy app changes these on every re-read
+	// and its row is patched every time. That is different from a field
+	// following the wall clock: this one moves because something moved.
+	CPUMilli    int64 `json:"cpuMilli,omitempty"`
+	MemoryBytes int64 `json:"memoryBytes,omitempty"`
+	Measured    int32 `json:"measured"`
 }
 
 // AppsFromSnapshot renders a snapshot into the wire view. The health verdict is
 // computed here, once, so every consumer sees the same derivation.
-func AppsFromSnapshot(snap clusters.Snapshot, state string, metrics MetricsInfo) AppsView {
+//
+// usage is keyed by "namespace/pod", as metrics.ByPod produces it. A nil map is
+// the normal case for a cluster with no metrics source, and produces rows with
+// nothing measured rather than rows reading zero.
+func AppsFromSnapshot(snap clusters.Snapshot, state string, metricsInfo MetricsInfo, usage map[string]metrics.Sample) AppsView {
 	out := AppsView{
 		Context: snap.Context,
 		State:   state,
 		Scope:   snap.Scope.String(),
 		Reason:  snap.Scope.Reason,
 		Partial: snap.Partial,
-		Metrics: metrics,
+		Metrics: metricsInfo,
 		Apps:    make([]AppView, 0, len(snap.Apps)),
 	}
 	for _, a := range snap.Apps {
@@ -299,9 +319,37 @@ func AppsFromSnapshot(snap clusters.Snapshot, state string, metrics MetricsInfo)
 		if !f.revisionAt.IsZero() {
 			v.RevisionAt = f.revisionAt.UTC().Format(time.RFC3339)
 		}
+		v.CPUMilli, v.MemoryBytes, v.Measured = usageOf(a, usage)
 		out.Apps = append(out.Apps, v)
 	}
 	return out
+}
+
+// usageOf sums what the app's own pods are using.
+//
+// The lookup is by pod identity rather than by namespace, because two apps in
+// one namespace are the common case and adding a neighbour's usage to yours
+// would be worse than showing none. A pod with no entry is skipped rather than
+// added as zero: the source may not have reported it yet, and a total that
+// silently counts a missing reading as idle is the failure this column exists
+// to avoid.
+func usageOf(a apps.App, usage map[string]metrics.Sample) (cpuMilli, memoryBytes int64, measured int32) {
+	if len(usage) == 0 {
+		return 0, 0, 0
+	}
+	for _, w := range a.Workloads {
+		if w.Kind != "Pod" {
+			continue
+		}
+		s, ok := usage[w.Namespace+"/"+w.Name]
+		if !ok {
+			continue
+		}
+		cpuMilli += s.CPUMilli
+		memoryBytes += s.MemoryBytes
+		measured++
+	}
+	return cpuMilli, memoryBytes, measured
 }
 
 // rowFacts reads the running version, the moment this revision appeared, and

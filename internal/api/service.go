@@ -167,7 +167,8 @@ func (s *Service) Apps(name string) (AppsView, error) {
 	// state rather than as an empty cluster.
 	if st.State == clusters.StateStale {
 		if last, ok := s.lastSnapshot(name); ok {
-			return AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name)), nil
+			info, usage := s.metricsFor(ctx, name)
+			return AppsFromSnapshot(last, st.State.String(), info, usage), nil
 		}
 	}
 
@@ -181,7 +182,8 @@ func (s *Service) Apps(name string) (AppsView, error) {
 		// A failed read does not erase what was last known. The old answer with
 		// its state beats an empty one.
 		if last, ok := s.lastSnapshot(name); ok {
-			view := AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name))
+			info, usage := s.metricsFor(ctx, name)
+			view := AppsFromSnapshot(last, st.State.String(), info, usage)
 			view.Error = err.Error()
 			return view, nil
 		}
@@ -193,7 +195,8 @@ func (s *Service) Apps(name string) (AppsView, error) {
 	// with the failures named.
 	if len(snap.Apps) == 0 && len(snap.Partial) > 0 {
 		if last, ok := s.lastSnapshot(name); ok {
-			view := AppsFromSnapshot(last, st.State.String(), s.metricsInfo(ctx, name))
+			info, usage := s.metricsFor(ctx, name)
+			view := AppsFromSnapshot(last, st.State.String(), info, usage)
 			view.Partial = snap.Partial
 			view.Reason = "nothing could be read just now; showing what was last known"
 			return view, nil
@@ -201,7 +204,8 @@ func (s *Service) Apps(name string) (AppsView, error) {
 	}
 
 	s.remember(name, snap)
-	return AppsFromSnapshot(snap, st.State.String(), s.metricsInfo(ctx, name)), nil
+	info, usage := s.metricsFor(ctx, name)
+	return AppsFromSnapshot(snap, st.State.String(), info, usage), nil
 }
 
 // metricsInfo probes the metrics source so the UI knows whether to render usage
@@ -210,12 +214,28 @@ func (s *Service) Apps(name string) (AppsView, error) {
 // A config that names a source overrides the probe, including "none", which
 // switches the usage columns off rather than rendering zeroes.
 func (s *Service) metricsInfo(ctx context.Context, name string) MetricsInfo {
+	info, _ := s.metricsFor(ctx, name)
+	return info
+}
+
+// metricsFor probes the source and, when it answers, reads usage for every pod
+// the caller may see, aggregated per pod.
+//
+// One list call per context per read. metrics-server answers all namespaces in
+// a single request, so the cost does not grow with the number of apps, and an
+// unavailable source costs nothing at all.
+//
+// A read that fails returns the info with no samples. The columns disappear and
+// the header says why, which is the same path as a cluster without the source.
+// Reporting the last usage would be worse: a number with no timestamp behind it
+// is the one thing principle 7 forbids.
+func (s *Service) metricsFor(ctx context.Context, name string) (MetricsInfo, map[string]metrics.Sample) {
 	if src := s.conf.Defaults.Metrics; src == "none" {
-		return MetricsInfo{Source: "none", Available: false, Reason: "disabled in config"}
+		return MetricsInfo{Source: "none", Available: false, Reason: "disabled in config"}, nil
 	}
 	client, ok := s.mgr.ClientFor(name)
 	if !ok {
-		return MetricsInfo{Source: "none", Available: false, Reason: "not connected"}
+		return MetricsInfo{Source: "none", Available: false, Reason: "not connected"}, nil
 	}
 	var mc metrics.PodMetricsAPI
 	if rc, err := kubeconfig.RESTConfigFor(s.opts, name); err == nil {
@@ -224,7 +244,18 @@ func (s *Service) metricsInfo(ctx context.Context, name string) MetricsInfo {
 		}
 	}
 	src := metrics.Probe(client.Discovery(), mc, "")
-	return MetricsInfo{Source: src.Name(), Available: src.Available(), Reason: src.Unavailable()}
+	info := MetricsInfo{Source: src.Name(), Available: src.Available(), Reason: src.Unavailable()}
+	if !src.Available() {
+		return info, nil
+	}
+
+	samples, err := src.PodSamples(ctx, "")
+	if err != nil {
+		info.Available = false
+		info.Reason = err.Error()
+		return info, nil
+	}
+	return info, metrics.ByPod(samples)
 }
 
 // LogSource opens the log side of one workload.

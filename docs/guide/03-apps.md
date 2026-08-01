@@ -66,15 +66,23 @@ column exists to avoid.
 
 ## Metrics
 
-CPU and memory come from metrics-server when it is installed, from Prometheus
-when you point at one, and from nothing when neither exists. In that last case
-the columns disappear and the header says why:
+CPU and memory come from metrics-server when it is installed, and from nothing
+when it is not. Prometheus is named in the config file and is not implemented
+yet. Usage is summed across the app's pods, in the same millicores `kubectl top`
+prints, so the two screens agree.
+
+When no source answers, the columns disappear and the header says why:
 
 ```
 metrics: unavailable · metrics-server is not installed (metrics.k8s.io is not registered)
 ```
 
 A zero would be a reading nobody took.
+
+A number followed by `*` is built from fewer pods than the app has. Hover it for
+the count. A crash-looping replica reports nothing, so its app's total is the
+usage of the replicas still standing, and saying so is the difference between a
+number and a number you can act on.
 
 ## Partial reads
 

@@ -34,6 +34,10 @@ export interface AppView {
   revisionAt?: string;
   pods: number;
   restarts: number;
+  cpuMilli?: number;
+  memoryBytes?: number;
+  /** How many of the app's pods the metrics source answered for. 0 means no reading. */
+  measured: number;
 }
 
 export interface TimelineActor {

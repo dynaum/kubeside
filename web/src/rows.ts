@@ -36,3 +36,36 @@ export function restartCell(pods: number, restarts: number): { text: string; war
   if (pods <= 0) return { text: "—", warn: false };
   return { text: String(restarts), warn: restarts > 0 };
 }
+
+/**
+ * cpuCell reads in millicores, the unit kubectl top prints, so a developer
+ * comparing the two screens compares the same number.
+ *
+ * measured is how many of the app's pods the source answered for. Zero means no
+ * reading was taken, which renders as a dash. A measured zero is an idle app and
+ * renders as one.
+ */
+export function cpuCell(measured: number, cpuMilli: number): string {
+  if (measured <= 0) return "—";
+  return `${Math.round(cpuMilli)}m`;
+}
+
+/** memCell picks the unit that fits, in the binary units Kubernetes uses. */
+export function memCell(measured: number, memoryBytes: number): string {
+  if (measured <= 0) return "—";
+  const mib = memoryBytes / (1024 * 1024);
+  if (mib >= 1024) return `${(mib / 1024).toFixed(1)}Gi`;
+  // Round up, so a pod holding half a mebibyte is not reported as holding
+  // nothing at all.
+  return `${mib > 0 ? Math.max(1, Math.round(mib)) : 0}Mi`;
+}
+
+/**
+ * usageNote names a total built from fewer pods than the app has. Three of four
+ * replicas is not the app's usage, and the difference between a number and a
+ * number you can act on is knowing which one you have.
+ */
+export function usageNote(measured: number, pods: number): string {
+  if (measured <= 0 || measured >= pods) return "";
+  return `${measured} of ${pods} pods reported`;
+}

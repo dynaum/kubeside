@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { restartCell, revisionAge, tagCell } from "./rows";
+import { cpuCell, memCell, restartCell, revisionAge, tagCell, usageNote } from "./rows";
 
 describe("tagCell", () => {
   it("shows the tag", () => {
@@ -47,5 +47,53 @@ describe("restartCell", () => {
   // Zero restarts across zero pods is a reading nobody took, not a calm app.
   it("shows a dash when no pods were read", () => {
     expect(restartCell(0, 0)).toEqual({ text: "—", warn: false });
+  });
+});
+
+describe("cpuCell", () => {
+  // Millicores, the same unit kubectl top prints, so a developer comparing the
+  // two screens is comparing the same number.
+  it("reads in millicores", () => {
+    expect(cpuCell(2, 120)).toBe("120m");
+    expect(cpuCell(2, 1200)).toBe("1200m");
+  });
+
+  // A measured zero is a reading: the app is idle. It has to look different
+  // from an app nobody measured.
+  it("shows a measured zero", () => {
+    expect(cpuCell(1, 0)).toBe("0m");
+  });
+
+  it("shows a dash when nothing reported", () => {
+    expect(cpuCell(0, 0)).toBe("—");
+  });
+});
+
+describe("memCell", () => {
+  it("reads in the unit that fits", () => {
+    expect(memCell(2, 384 * 1024 * 1024)).toBe("384Mi");
+    expect(memCell(2, 2 * 1024 * 1024 * 1024)).toBe("2.0Gi");
+    expect(memCell(1, 900 * 1024)).toBe("1Mi");
+  });
+
+  it("shows a measured zero", () => {
+    expect(memCell(1, 0)).toBe("0Mi");
+  });
+
+  it("shows a dash when nothing reported", () => {
+    expect(memCell(0, 0)).toBe("—");
+  });
+});
+
+describe("usageNote", () => {
+  // A total built from three of four replicas is not the app's usage. Saying so
+  // is the difference between a number and a number you can act on.
+  it("names a partial reading", () => {
+    expect(usageNote(3, 4)).toBe("3 of 4 pods reported");
+  });
+
+  it("says nothing when every pod reported", () => {
+    expect(usageNote(4, 4)).toBe("");
+    expect(usageNote(0, 0)).toBe("");
   });
 });

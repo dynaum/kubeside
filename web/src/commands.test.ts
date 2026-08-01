@@ -13,7 +13,7 @@ function ctx(name: string, environment: string): ContextView {
 function app(namespace: string, name: string, health = "healthy"): AppView {
   return {
     namespace, name, health, kind: "Deployment", reason: "", detail: "",
-    groupedBy: "label", ready: "2/2", objects: 3, pods: 2, restarts: 0,
+    groupedBy: "label", ready: "2/2", objects: 3, pods: 2, restarts: 0, measured: 0,
   };
 }
 

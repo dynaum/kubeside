@@ -259,6 +259,14 @@ func TestNoMetricsSourceReportsUnavailableRatherThanZero(t *testing.T) {
 	if view.Metrics.Reason == "" {
 		t.Error("an unavailable metrics source should say why")
 	}
+	// The columns come off, and no row carries a usage figure behind them. A
+	// zero here would read as an idle app on a cluster that measured nothing.
+	for _, a := range view.Apps {
+		if a.Measured != 0 || a.CPUMilli != 0 || a.MemoryBytes != 0 {
+			t.Errorf("%s claims usage with no source: measured=%d cpu=%d mem=%d",
+				a.Name, a.Measured, a.CPUMilli, a.MemoryBytes)
+		}
+	}
 }
 
 // A read-only role that excludes secrets is the common shape for prod. The
