@@ -46,8 +46,22 @@ Grouping is derived, with a documented precedence chain:
 5. Workload name as a last resort
 
 Each row carries: name, health, ready replicas over desired, image tag, age of
-the current revision, restart count in the last 24 hours, and a sparkline of
-recent restarts.
+the current revision, and a restart count.
+
+Two corrections from the implementation, kept here rather than left as silent
+divergence.
+
+The restart count is the lifetime of the pods running now, not the last 24
+hours. Pod status publishes a total and no window, and a rolling deploy resets
+it by replacing the pods. A lifetime count labelled as a 24-hour count would
+break principle 7 for the sake of matching a sentence written before the field
+was read. Restarts over time are the timeline's job.
+
+The sparkline is not in v1. Restarts per interval are not in any single read;
+reconstructing them means walking pod history for every app in the list, on
+every re-read, across every connected cluster. That cost belongs to a screen
+about one app, not to a list of four hundred. The revision age plus a restart
+total answers "is this flapping" well enough to defer it.
 
 Health is derived and explainable. Clicking the badge shows why, naming the
 condition and the probe. The derivation is specified here so it never becomes

@@ -18,6 +18,15 @@ test("apps list", async ({ page }) => {
   // Worst first: the failing app leads the table.
   await expect(page.locator("table.tbl tbody tr").first()).toContainText("search-indexer");
   await expect(page.locator("table.tbl tbody tr").last()).toContainText("checkout");
+  // The row answers what is running, since when, and whether it is flapping.
+  // Asserted as text because the pixel gate's antialiasing tolerance is wide
+  // enough to let a whole column swap through unnoticed.
+  const payments = page.locator("table.tbl tbody tr", { hasText: "payments" });
+  await expect(payments).toContainText("3.2.1");
+  await expect(payments).toContainText("1h");
+  await expect(payments).toContainText("14");
+  // Never scheduled, so no pod was read and no restart count was measured.
+  await expect(page.locator("table.tbl tbody tr", { hasText: "billing" })).toContainText("—");
   await expect(page).toHaveScreenshot("apps.png", { fullPage: true });
 });
 

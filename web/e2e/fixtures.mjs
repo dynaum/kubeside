@@ -14,25 +14,39 @@ export const contexts = [
   },
 ];
 
+// The clock the screenshots freeze at is 2026-07-25T03:00:00Z, so every
+// revisionAt below is chosen to render a readable age against it.
 const apps = [
   {
     namespace: "team-b", name: "search-indexer", kind: "Deployment", health: "failed",
     reason: "ImagePullBackOff", detail: 'pod search-indexer-75f4d is in ImagePullBackOff',
     groupedBy: "recommended-labels", ready: "0/2", objects: 4,
+    image: "ghcr.io/acme/search-indexer:2.1.0-rc4", tag: "2.1.0-rc4",
+    revisionAt: "2026-07-25T02:48:00Z", pods: 2, restarts: 0,
   },
   {
+    // Never scheduled, so no pod exists and the restart column shows a dash
+    // rather than a zero nobody measured.
     namespace: "team-b", name: "billing", kind: "CronJob", health: "unknown",
     reason: "not scheduled", detail: "the schedule has not fired yet",
     groupedBy: "workload-name", ready: "", objects: 1,
+    image: "ghcr.io/acme/billing:1.9.0", tag: "1.9.0",
+    revisionAt: "2026-07-19T03:00:00Z", pods: 0, restarts: 0,
   },
   {
     namespace: "team-a", name: "checkout", kind: "Deployment", health: "healthy",
     reason: "", detail: "", groupedBy: "recommended-labels", ready: "4/4", objects: 6,
+    image: "ghcr.io/acme/checkout:1.4.2", tag: "1.4.2",
+    revisionAt: "2026-07-23T03:00:00Z", pods: 4, restarts: 0,
   },
   {
+    // 5/6 hides the replica that has died fourteen times. The restart column is
+    // the only place that shows on this screen.
     namespace: "team-a", name: "payments", kind: "Deployment", health: "degraded",
     reason: "one replica not ready", detail: "1 replica failing readinessProbe on :8080/healthz",
     groupedBy: "recommended-labels", ready: "5/6", objects: 8,
+    image: "ghcr.io/acme/payments:3.2.1", tag: "3.2.1",
+    revisionAt: "2026-07-25T01:30:00Z", pods: 6, restarts: 14,
   },
 ];
 

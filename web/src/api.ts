@@ -28,6 +28,12 @@ export interface AppView {
   managedBy?: string;
   ready: string;
   objects: number;
+  image?: string;
+  tag?: string;
+  /** RFC3339. The moment the newest object appeared, which is when the revision rolled. */
+  revisionAt?: string;
+  pods: number;
+  restarts: number;
 }
 
 export interface TimelineActor {

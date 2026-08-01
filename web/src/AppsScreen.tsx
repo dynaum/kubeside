@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type AppsView, type AppView, type ContextView } from "./api";
 import { Glyph } from "./Status";
 import { envToken } from "./health";
+import { restartCell, revisionAge, tagCell } from "./rows";
 import { useApps, type Liveness } from "./stream";
 
 const ATTENTION: Record<string, number> = {
@@ -71,6 +72,19 @@ export function AppsScreen({
   );
 }
 
+// The age column is derived from a moment on the wire, so it only advances when
+// something re-renders. A quiet cluster sends no patches for minutes, and a
+// column reading "2m" half an hour later is a small lie. One tick keeps it
+// honest without asking the server for anything.
+function useMinuteTick(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 function Body({
   view, rows, onOpenLogs, onOpenApp,
 }: {
@@ -80,6 +94,8 @@ function Body({
   onOpenLogs: (namespace: string, workload: string) => void;
   onOpenApp: (namespace: string, workload: string) => void;
 }) {
+  const now = useMinuteTick();
+
   if (!hasData(view.state)) {
     return (
       <Empty
@@ -118,8 +134,9 @@ function Body({
             <th>App</th>
             <th>Kind</th>
             <th className="r">Ready</th>
-            <th className="r">Objects</th>
-            <th>Grouped by</th>
+            <th>Tag</th>
+            <th className="r">Age</th>
+            <th className="r" title="container restarts across this app's pods, for the lifetime of those pods">Restarts</th>
             <th>Why</th>
             <th></th>
           </tr>
@@ -134,6 +151,10 @@ function Body({
                   className="tab"
                   style={{ padding: 0, textTransform: "none", letterSpacing: 0, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg)" }}
                   onClick={() => onOpenApp(a.namespace, a.name)}
+                  // Why this row is one app stays reachable without spending a
+                  // column on it. A list that looks wrong should still be able
+                  // to say why it looks wrong.
+                  title={`grouped by ${a.groupedBy} · ${a.objects} objects`}
                 >
                   {a.name}
                 </button>
@@ -143,8 +164,13 @@ function Body({
                 {a.managedBy && <span className="tag tag-managed" style={{ marginLeft: 6 }}>via {a.managedBy}</span>}
               </td>
               <td className="r ratio">{a.ready || <span className="dim">—</span>}</td>
-              <td className="r mono">{a.objects}</td>
-              <td className="dim mono" style={{ fontSize: 11 }}>{a.groupedBy}</td>
+              <td className={`mono${a.tag ? "" : " dim"}`} style={{ fontSize: 11 }} title={a.image || undefined}>
+                {tagCell(a.tag)}
+              </td>
+              <td className="r mono dim" style={{ fontSize: 11 }} title={a.revisionAt || undefined}>
+                {revisionAge(a.revisionAt, now)}
+              </td>
+              <td className="r mono"><Restarts pods={a.pods} restarts={a.restarts} /></td>
               <td className="dim" style={{ fontSize: 11, whiteSpace: "normal" }}>
                 {a.health === "healthy" ? "" : a.detail}
               </td>
@@ -156,6 +182,21 @@ function Body({
         </tbody>
       </table>
     </>
+  );
+}
+
+// A restart count above zero is the signal a ready ratio hides: 4/4 says
+// nothing about the replica that has died six times today.
+function Restarts({ pods, restarts }: { pods: number; restarts: number }) {
+  const cell = restartCell(pods, restarts);
+  return (
+    <span
+      className={cell.warn ? "" : "dim"}
+      style={cell.warn ? { color: "var(--warn)" } : undefined}
+      title={cell.warn ? `${restarts} container restarts across ${pods} pods` : undefined}
+    >
+      {cell.text}
+    </span>
   );
 }
 

@@ -265,6 +265,12 @@ func stripEnvToken(ns string) string {
 // A registry port is not a tag: reading "registry:5000/app" as tag 5000 would
 // put a port number in every cell of a self-hosted registry's matrix.
 func TagOf(image string) string {
+	// No image is not an image running latest. A metadata-only read leaves this
+	// empty, and the implicit-latest rule below would turn "unknown" into a
+	// version claim.
+	if image == "" {
+		return ""
+	}
 	if at := strings.Index(image, "@"); at >= 0 {
 		// Digest-pinned. There is no tag to show, and inventing one would be
 		// worse than an empty cell.

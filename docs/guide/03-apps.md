@@ -18,13 +18,33 @@ that workload by the first rule that matches:
 | 3 | `argocd.argoproj.io/instance` label | `argocd-instance` |
 | 4 | The workload's own name | `workload-name` |
 
-The `GROUPED BY` column shows which rule produced each row, so a list that looks
-wrong tells you why it looks wrong. A cluster full of `workload-name` is a
-cluster whose labels carry no information, which is worth knowing.
+Hover an app name to see which rule produced that row and how many objects it
+covers, so a list that looks wrong tells you why it looks wrong. `kubeside
+--print` puts the same thing in a `GROUPED BY` column, which is the faster way
+to audit a whole cluster at once: a cluster full of `workload-name` is a cluster
+whose labels carry no information, and that is worth knowing.
 
 A workload owned by something kubeside does not model, an operator's custom
 resource for example, is marked `Kind via Owner` rather than hidden. It might
 still be somebody's app.
+
+## What a row carries
+
+| Column | Reads |
+| --- | --- |
+| `READY` | Ready replicas over desired, or `—` for a kind where that means nothing. |
+| `TAG` | The image tag the workload asks for. Hover it for the full reference, because two apps on `1.4.2` from different registries are not the same code. |
+| `AGE` | How long since this revision appeared, measured from the newest object the rollout created. Not how long the app has existed. |
+| `RESTARTS` | Container restarts across the app's pods, amber above zero. |
+| `WHY` | What derived the health, and nothing at all when the app is healthy. |
+
+`RESTARTS` counts the lifetime of the pods that are running now, not a 24-hour
+window. Kubernetes does not publish a windowed count, and a rolling deploy
+resets the number by replacing the pods. Treat it as "is this flapping right
+now", and open the [timeline](05-timeline.html) for restarts over time.
+
+A row with no pods reads `—` rather than `0`. A CronJob that has never fired has
+restarted zero times only in the sense that nothing has run.
 
 ## Health
 

@@ -231,6 +231,38 @@ type AppView struct {
 	ManagedBy string `json:"managedBy,omitempty"`
 	Ready     string `json:"ready"` // "5/6" or "" when not applicable
 	Objects   int    `json:"objects"`
+
+	// What version is running, how long it has been running, and whether it is
+	// flapping. Three of the four questions start here, and answering them one
+	// click deep meant opening every app to find the one that moved.
+	//
+	// Tag is the display value and Image the full reference, because two apps
+	// running "1.4.2" from different registries are not running the same code.
+	// Both are empty when nothing in the snapshot carried an image; the row
+	// renders a dash rather than a guess.
+	Image string `json:"image,omitempty"`
+	Tag   string `json:"tag,omitempty"`
+
+	// RevisionAt is when the newest object in the app appeared, which is what a
+	// rollout creates. The workload's own age answers a different question: how
+	// long the app has existed, not how long this version has been serving.
+	// Empty when nothing carried a creation stamp.
+	//
+	// A moment, not an age, because diffApps compares rows by value. An age
+	// recomputed from the wall clock would differ on every re-read and send the
+	// entire list every five seconds. The browser subtracts.
+	RevisionAt string `json:"revisionAt,omitempty"`
+
+	// Restarts is the container restart total across the app's pods, for the
+	// lifetime of those pods. Kubernetes does not expose a windowed count, so
+	// the column is labelled for what it is rather than as the 24-hour figure
+	// docs/03-product-spec.md asks for.
+	//
+	// Pods is how many were read. Zero restarts across zero pods is not an app
+	// that never restarted, and the row renders a dash rather than a zero
+	// nobody measured.
+	Pods     int32 `json:"pods"`
+	Restarts int32 `json:"restarts"`
 }
 
 // AppsFromSnapshot renders a snapshot into the wire view. The health verdict is
@@ -247,7 +279,8 @@ func AppsFromSnapshot(snap clusters.Snapshot, state string, metrics MetricsInfo)
 	}
 	for _, a := range snap.Apps {
 		h := apps.Assess(a)
-		out.Apps = append(out.Apps, AppView{
+		f := rowFacts(a)
+		v := AppView{
 			Namespace: a.Key.Namespace,
 			Name:      a.Key.Name,
 			Kind:      a.Kind,
@@ -258,9 +291,66 @@ func AppsFromSnapshot(snap clusters.Snapshot, state string, metrics MetricsInfo)
 			ManagedBy: a.ManagedBy,
 			Ready:     readyRatio(a),
 			Objects:   len(a.Workloads),
-		})
+			Image:     f.image,
+			Tag:       promotion.TagOf(f.image),
+			Pods:      f.pods,
+			Restarts:  f.restarts,
+		}
+		if !f.revisionAt.IsZero() {
+			v.RevisionAt = f.revisionAt.UTC().Format(time.RFC3339)
+		}
+		out.Apps = append(out.Apps, v)
 	}
 	return out
+}
+
+// rowFacts reads the running version, the moment this revision appeared, and
+// the restart total from the snapshot the list already holds. Everything here
+// is present in one read, which is what keeps the column set affordable on a
+// list that re-renders every few seconds across several clusters.
+//
+// This mirrors instanceOf, which answers the same question for the promotion
+// matrix. They stay separate because a promotion cell also needs the digest
+// from pod status, and a list of four hundred rows should not pay for it.
+func rowFacts(a apps.App) rowSummary {
+	var f rowSummary
+	var podImage string
+	for _, w := range a.Workloads {
+		// A rollout creates objects. The newest one dates the revision, and a
+		// missing stamp is skipped rather than read as the zero time.
+		if !w.Created.IsZero() && w.Created.After(f.revisionAt) {
+			f.revisionAt = w.Created
+		}
+		if w.Status == nil {
+			continue
+		}
+		// The workload's spec beats a pod's, because a pod may still be running
+		// the previous revision while a rollout is in flight. The row answers
+		// "what was deployed", and the health column already says whether it
+		// arrived.
+		if w.Kind == a.Kind && w.Status.Image != "" {
+			f.image = w.Status.Image
+		}
+		if w.Kind == "Pod" {
+			f.pods++
+			f.restarts += w.Status.RestartCount
+			if podImage == "" && w.Status.Image != "" {
+				podImage = w.Status.Image
+			}
+		}
+	}
+	// A pod's image is the fallback, for a kind whose own spec was not read.
+	if f.image == "" {
+		f.image = podImage
+	}
+	return f
+}
+
+type rowSummary struct {
+	image      string
+	revisionAt time.Time
+	pods       int32
+	restarts   int32
 }
 
 // readyRatio mirrors the CLI: the top-level workload's ready-over-desired, or

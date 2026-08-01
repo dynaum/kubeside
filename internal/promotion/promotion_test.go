@@ -228,4 +228,10 @@ func TestTagIsReadFromTheImage(t *testing.T) {
 	if got := TagOf("app@sha256:abc"); got != "" {
 		t.Errorf("tag = %q, want none for a digest-pinned image", got)
 	}
+	// An image that says nothing is not an image running latest. A metadata-only
+	// read produces this, and "latest" would be a claim about which version is
+	// live in the one view built to answer that.
+	if got := TagOf(""); got != "" {
+		t.Errorf("tag = %q, want none when the image is unknown", got)
+	}
 }

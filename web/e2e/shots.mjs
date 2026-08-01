@@ -175,6 +175,46 @@ async function record(browser) {
   renameSync(join(videoDir, file), webm);
   rmSync(videoDir, { recursive: true, force: true });
   console.log(`video: docs/images/walkthrough.webm`);
+
+  await gif(webm, join(outDir, "walkthrough.gif"));
+}
+
+/**
+ * The README embeds the gif, because GitHub does not play a webm inline. It has
+ * to come from the same recording as the webm, or the first thing a visitor
+ * sees is a version of the product that no longer exists.
+ *
+ * Two passes: one to build a palette from the whole clip, one to apply it.
+ * A single pass picks 256 colours per frame and the dark UI bands visibly.
+ */
+function gif(webm, out) {
+  const palette = out.replace(/\.gif$/, "-palette.png");
+  // Geometry and rate match the gif this replaced, so the README's hero keeps
+  // its size and weight. Flat UI colour needs no dithering, and dithering a
+  // dark screen costs a megabyte in noise nobody can see.
+  const filters = "fps=25/3,scale=880:-1:flags=lanczos";
+  return run("ffmpeg", ["-y", "-i", webm, "-vf", `${filters},palettegen=stats_mode=diff`, palette])
+    .then(() => run("ffmpeg", ["-y", "-i", webm, "-i", palette,
+      "-lavfi", `${filters}[x];[x][1:v]paletteuse=dither=none`, out]))
+    .then(() => {
+      rmSync(palette, { force: true });
+      console.log(`video: docs/images/walkthrough.gif`);
+    })
+    .catch((err) => {
+      rmSync(palette, { force: true });
+      throw err;
+    });
+}
+
+function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    p.stderr.on("data", (d) => { stderr += d; });
+    p.on("error", reject);
+    p.on("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}\n${stderr.slice(-2000)}`)));
+  });
 }
 
 main().catch((err) => {
