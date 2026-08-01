@@ -69,7 +69,7 @@ export function ConfigScreen({
           <span className="cur">{workload}</span>
         </div>
         <span className="spacer" />
-        {view?.pod && <span className="page-sub mono" style={{ fontSize: 11 }}>read from {view.pod}</span>}
+        {view?.pod && <span className="page-sub mono" style={{ fontSize: "var(--fs-label)" }}>read from {view.pod}</span>}
         <button className="btn" onClick={() => onNavigate("diff")}>Compare environment</button>
       </div>
 
@@ -83,7 +83,7 @@ export function ConfigScreen({
         {err && (
           <div className="empty">
             <div className="head">Could not resolve configuration</div>
-            <div className="mono" style={{ fontSize: 12 }}>{err}</div>
+            <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{err}</div>
           </div>
         )}
         {!err && !view && (
@@ -104,7 +104,7 @@ export function ConfigScreen({
                 </button>
               ))}
               <span className="spacer" />
-              <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+              <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
                 {container.values.length} keys from {sourceCount(container)} {sourceCount(container) === 1 ? "source" : "sources"}
               </span>
             </div>
@@ -242,7 +242,7 @@ function ValueCell({
       return (
         <>
           <span className="masked">••••••••••••</span>
-          <span className="dim" style={{ marginLeft: 6, fontSize: 11 }}>{error}</span>
+          <span className="dim" style={{ marginLeft: 6, fontSize: "var(--fs-label)" }}>{error}</span>
         </>
       );
     }
@@ -270,7 +270,7 @@ function ValueCell({
     return (
       <>
         <span className="tag tag-missing">missing</span>
-        <span className="dim" style={{ marginLeft: 6, fontSize: 11 }}>{v.reason}</span>
+        <span className="dim" style={{ marginLeft: 6, fontSize: "var(--fs-label)" }}>{v.reason}</span>
       </>
     );
   }

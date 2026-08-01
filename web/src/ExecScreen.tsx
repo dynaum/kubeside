@@ -187,7 +187,7 @@ export function ExecScreen({
           ref={mount}
           style={{ flex: 1, minHeight: 320, border: "1px solid var(--line)", borderRadius: "var(--r2)", padding: "var(--s2)" }}
         />
-        <p style={{ color: "var(--fg-4)", fontSize: 11, marginTop: "var(--s3)" }}>
+        <p style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)", marginTop: "var(--s3)" }}>
           This session is on the timeline. A shell in production is an event, not a page view.
         </p>
       </div>

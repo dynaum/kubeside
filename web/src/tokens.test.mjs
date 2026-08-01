@@ -36,3 +36,48 @@ describe("the light palette", () => {
     expect(light).toEqual(dark);
   });
 });
+
+describe("the type scale", () => {
+  const sizes = [...css.matchAll(/font-size:\s*([^;}]+)/g)].map((m) => m[1].trim());
+
+  // A literal pixel here is a size nothing can turn. This is the whole reason
+  // text was not adjustable: the seven sizes the design system names were
+  // written out 44 times instead of being addressable once.
+  it("has no size a preference cannot reach", () => {
+    const literal = sizes.filter((s) => /^[0-9.]+px$/.test(s));
+    expect(literal).toEqual([]);
+  });
+
+  it("derives every size from the multiplier", () => {
+    expect(sizes.length).toBeGreaterThan(30);
+    for (const s of sizes) {
+      // inherit follows whatever it inherits from, which is the scale.
+      if (s === "inherit") continue;
+      expect(s, `${s} does not follow --scale`).toMatch(/var\(--fs-|var\(--scale\)/);
+    }
+  });
+
+  // Row height is not decoration. The foundation calls 34px the tightest height
+  // that still fits a 9px glyph and 12px mono, so text that grows inside a row
+  // that does not is text that clips.
+  it("scales the row with the text", () => {
+    expect(css).toMatch(/--row-h:\s*calc\(34px\s*\*\s*var\(--scale\)\)/);
+  });
+
+  // These hold text and clip if it grows past them.
+  it("scales the widths that hold text", () => {
+    for (const px of ["216px", "132px", "96px", "112px"]) {
+      const re = new RegExp(`calc\\(${px}\\s*\\*\\s*var\\(--scale\\)\\)`);
+      expect(css, `${px} holds text and must scale`).toMatch(re);
+    }
+  });
+
+  // The spacing grid deliberately does not move. That is the difference between
+  // this and browser zoom, and the reason it costs fewer rows.
+  it("leaves the spacing grid alone", () => {
+    // Just the two lines that define the grid, not the rest of the block.
+    const spacing = css.match(/--s1:.*\n.*--s5:[^\n]*/)[0];
+    expect(spacing).toContain("4px");
+    expect(spacing).not.toContain("--scale");
+  });
+});

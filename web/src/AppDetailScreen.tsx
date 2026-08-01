@@ -209,7 +209,7 @@ export function AppDetailScreen({
         {err && (
           <div className="empty">
             <div className="head">Could not open {workload}</div>
-            <div className="mono" style={{ fontSize: 12 }}>{err}</div>
+            <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{err}</div>
           </div>
         )}
         {!err && !view && (
@@ -248,7 +248,7 @@ function Body({
         <div className="frame" style={{ flex: 1.4 }}>
           <div className="frame-body" style={{ padding: "var(--s3) var(--s4)" }}>
             <div className="stat">Why {view.health}</div>
-            <div style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 3 }}>
+            <div style={{ fontSize: "var(--fs-data)", color: "var(--fg-2)", marginTop: 3 }}>
               {view.detail || view.reason || "nothing needs attention"}
             </div>
           </div>
@@ -263,7 +263,7 @@ function Body({
         {horizons.length > 0 && (
           <div style={{
             padding: "var(--s2) var(--s3)", borderBottom: "1px solid var(--line)",
-            display: "flex", flexWrap: "wrap", gap: "var(--s4)", fontSize: 11, color: "var(--fg-3)",
+            display: "flex", flexWrap: "wrap", gap: "var(--s4)", fontSize: "var(--fs-label)", color: "var(--fg-3)",
           }}>
             {/* The markers on the axis are short by necessity. The reasons
                 belong on screen too: a horizon nobody can read is decoration. */}
@@ -330,7 +330,7 @@ function Axis({
               {gap && (
                 <span style={{
                   position: "absolute", left: "var(--s3)", top: "50%", zIndex: 4,
-                  transform: "translateY(-50%)", fontSize: 11, color: "var(--fg-3)",
+                  transform: "translateY(-50%)", fontSize: "var(--fs-label)", color: "var(--fg-3)",
                 }}>
                   unavailable · {gap.reason}
                 </span>
@@ -339,7 +339,7 @@ function Axis({
               {blank && (
                 <span style={{
                   position: "absolute", left: "var(--s3)", top: "50%", zIndex: 4,
-                  transform: "translateY(-50%)", fontSize: 11, color: "var(--fg-3)",
+                  transform: "translateY(-50%)", fontSize: "var(--fs-label)", color: "var(--fg-3)",
                 }}>
                   not known
                 </span>
@@ -375,7 +375,7 @@ function Changes({ entries }: { entries: TimelineEntry[] }) {
       <div className="frame-cap"><span>Changes</span><span>actor from managedFields</span></div>
       <div className="frame-body flush" style={{ padding: "var(--s3) var(--s4) var(--s4)" }}>
         {entries.length === 0 ? (
-          <div style={{ color: "var(--fg-3)", fontSize: 12 }}>
+          <div style={{ color: "var(--fg-3)", fontSize: "var(--fs-data)" }}>
             Nothing recoverable. The cluster keeps no record this far back.
           </div>
         ) : (
@@ -429,7 +429,7 @@ function Pods({ pods }: { pods: PodView[] }) {
       </div>
       <div className="frame-body flush" style={{ padding: "var(--s3) var(--s4) var(--s4)" }}>
         {pods.length === 0 ? (
-          <div style={{ color: "var(--fg-3)", fontSize: 12 }}>No pods. This workload is not running anything.</div>
+          <div style={{ color: "var(--fg-3)", fontSize: "var(--fs-data)" }}>No pods. This workload is not running anything.</div>
         ) : (
           <table className="tbl">
             <thead>

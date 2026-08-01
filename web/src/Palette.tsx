@@ -150,7 +150,7 @@ export function Palette({
               color: "var(--fg)", font: "inherit",
             }}
           />
-          <span className="hint" style={{ color: "var(--fg-4)", fontSize: 11 }}>
+          <span className="hint" style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
             {matches.length} {matches.length === 1 ? "result" : "results"}
           </span>
         </div>
@@ -199,7 +199,7 @@ export function Palette({
         <div style={{
           display: "flex", gap: "var(--s4)", padding: "var(--s2) var(--s4)",
           borderTop: "1px solid var(--line)", background: "var(--surface)",
-          color: "var(--fg-4)", fontSize: 10,
+          color: "var(--fg-4)", fontSize: "var(--fs-col)",
         }}>
           <span><span className="kbd">↑</span><span className="kbd">↓</span> navigate</span>
           <span><span className="kbd">↵</span> open</span>

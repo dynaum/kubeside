@@ -32,7 +32,7 @@ export function PromotionScreen({ onOpenApp }: { onOpenApp: (context: string, na
         </div>
         <span className="spacer" />
         {view && (
-          <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+          <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
             {view.summary.apps} apps · {view.summary.drifted} with drift · {view.summary.ahead} ahead of upstream
           </span>
         )}
@@ -47,7 +47,7 @@ export function PromotionScreen({ onOpenApp }: { onOpenApp: (context: string, na
         {err && (
           <div className="empty">
             <div className="head">Could not build the matrix</div>
-            <div className="mono" style={{ fontSize: 12 }}>{err}</div>
+            <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{err}</div>
           </div>
         )}
         {!err && !view && (

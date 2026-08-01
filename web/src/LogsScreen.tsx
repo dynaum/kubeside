@@ -113,7 +113,7 @@ export function LogsScreen({
         </div>
 
         {filter.error && (
-          <div className="row" style={{ marginBottom: "var(--s3)", color: "var(--warn)", fontSize: 11 }}>
+          <div className="row" style={{ marginBottom: "var(--s3)", color: "var(--warn)", fontSize: "var(--fs-label)" }}>
             filter is not valid: {filter.error}. Showing everything.
           </div>
         )}
@@ -124,7 +124,7 @@ export function LogsScreen({
         >
           <PodKey pods={pods} hidden={hiddenPods} onToggle={(p) => setHiddenPods(toggle(hiddenPods, p))} />
           <span className="spacer" />
-          <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+          <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
             {includeSidecars ? "sidecars shown" : "mesh sidecars hidden"}
             {includeInit ? " · init containers shown" : " · init containers hidden"}
           </span>
@@ -158,7 +158,7 @@ function Body({
     return (
       <div className="empty">
         <div className="head">No logs for this workload</div>
-        <div className="mono" style={{ fontSize: 12 }}>{error}</div>
+        <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{error}</div>
       </div>
     );
   }
@@ -218,7 +218,7 @@ function PodKey({
   hidden: Set<string>;
   onToggle: (pod: string) => void;
 }) {
-  if (pods.length === 0) return <span style={{ color: "var(--fg-4)", fontSize: 11 }}>no replicas have logged yet</span>;
+  if (pods.length === 0) return <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>no replicas have logged yet</span>;
   return (
     <div className="pod-key">
       {pods.map((p) => (
@@ -246,7 +246,7 @@ function Counts({
   liveness: string;
 }) {
   return (
-    <span className="page-sub mono" style={{ fontSize: 11 }}>
+    <span className="page-sub mono" style={{ fontSize: "var(--fs-label)" }}>
       {shown === total ? `${total} lines` : `${shown} of ${total} lines`}
       {/* A buffer that quietly loses lines makes a chatty workload look calm. */}
       {dropped > 0 && ` · ${dropped} dropped by the buffer`}

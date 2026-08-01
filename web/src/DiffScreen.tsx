@@ -51,7 +51,7 @@ export function DiffScreen({
         </div>
         <span className="spacer" />
         {view && (
-          <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+          <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
             {view.summary.drift} drift · {view.summary.suspicious} suspicious · {view.summary.missing} missing ·{" "}
             {view.summary.expected} expected
           </span>
@@ -90,7 +90,7 @@ export function DiffScreen({
         {err && (
           <div className="empty">
             <div className="head">Could not compare</div>
-            <div className="mono" style={{ fontSize: 12 }}>{err}</div>
+            <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{err}</div>
           </div>
         )}
         {other && !err && !view && (
@@ -172,7 +172,7 @@ function Side({
     return (
       <>
         <span className="masked">••••••••</span>
-        <span style={{ color: "var(--fg-4)", fontSize: 11, marginLeft: 6 }}>
+        <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)", marginLeft: 6 }}>
           {digest ? digest : "no digest · not readable"}
         </span>
       </>

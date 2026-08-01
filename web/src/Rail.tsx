@@ -45,7 +45,7 @@ export function Rail({
       </button>
 
       <div style={{ marginTop: "auto", padding: "var(--s4)", borderTop: "1px solid var(--line)" }}>
-        <div className="mono" style={{ fontSize: 10, color: "var(--fg-4)", lineHeight: 1.6 }}>
+        <div className="mono" style={{ fontSize: "var(--fs-col)", color: "var(--fg-4)", lineHeight: 1.6 }}>
           reads ~/.kube/config
           <br />
           writes nothing to disk

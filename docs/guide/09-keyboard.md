@@ -50,7 +50,13 @@ moves the type and the row height and leaves the grid alone. Use both: zoom the
 window, size the type inside it.
 
 Six steps, from 90% to 160%. The top of the range trades density for legibility
-on purpose.
+on purpose: rows get taller, and on a dense screen the table becomes wider than
+the window and scrolls sideways. Nothing is cut off, and every column is still
+reachable.
+
+The row height grows with the text, because a 34px row is the tightest one that
+fits the glyph and the mono cell it contains. Text that grew inside a row that
+did not would clip.
 
 kubeside follows your desktop's light or dark setting until you pick one, and
 keeps following it, so a machine that switches at sunset takes kubeside with it.

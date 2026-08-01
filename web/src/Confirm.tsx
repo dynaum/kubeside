@@ -127,18 +127,18 @@ export function Confirm({
               </dl>
 
               {permission && !permission.allowed && (
-                <p style={{ color: "var(--err)", fontSize: 12 }}>
+                <p style={{ color: "var(--err)", fontSize: "var(--fs-data)" }}>
                   The cluster refuses this: {permission.reason}
                 </p>
               )}
 
               {gate.reason && !gate.permitted && (
-                <p style={{ color: "var(--warn)", fontSize: 12 }}>{gate.reason}</p>
+                <p style={{ color: "var(--warn)", fontSize: "var(--fs-data)" }}>{gate.reason}</p>
               )}
 
               {needsGlass && (
                 <>
-                  <p style={{ fontSize: 12, color: "var(--fg-2)" }}>
+                  <p style={{ fontSize: "var(--fs-data)", color: "var(--fg-2)" }}>
                     Unlocking arms {gate.environment} for fifteen minutes and puts your reason on the timeline.
                   </p>
                   <input
@@ -162,7 +162,7 @@ export function Confirm({
 
               {needsTyping && !unlockOnly && (
                 <>
-                  <p style={{ fontSize: 12, color: "var(--fg-2)" }}>
+                  <p style={{ fontSize: "var(--fs-data)", color: "var(--fg-2)" }}>
                     Type <code className="mono">{gate.confirm}</code> to confirm.
                   </p>
                   <input
@@ -177,7 +177,7 @@ export function Confirm({
                 </>
               )}
 
-              <p style={{ color: "var(--fg-4)", fontSize: 11, marginTop: "var(--s3)", lineHeight: 1.5 }}>
+              <p style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)", marginTop: "var(--s3)", lineHeight: 1.5 }}>
                 These prompts guard against acting in the wrong window. They are not security: the write
                 policy lives in your own config file. RBAC is the boundary that stops anything.
               </p>

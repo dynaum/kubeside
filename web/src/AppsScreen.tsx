@@ -52,7 +52,7 @@ export function AppsScreen({
         {view && <ScopeNote view={view} />}
         <span className="spacer" />
         <LiveDot liveness={liveness} />
-        <span style={{ color: "var(--fg-4)", fontSize: 11 }}>
+        <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
           <span className="kbd">⌘</span> <span className="kbd">K</span>
         </span>
         <input
@@ -155,7 +155,7 @@ function Body({
               <td className="name">
                 <button
                   className="tab"
-                  style={{ padding: 0, textTransform: "none", letterSpacing: 0, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg)" }}
+                  style={{ padding: 0, textTransform: "none", letterSpacing: 0, fontFamily: "var(--font-mono)", fontSize: "var(--fs-data)", color: "var(--fg)" }}
                   onClick={() => onOpenApp(a.namespace, a.name)}
                   // Why this row is one app stays reachable without spending a
                   // column on it. A list that looks wrong should still be able
@@ -170,15 +170,15 @@ function Body({
                 {a.managedBy && <span className="tag tag-managed" style={{ marginLeft: 6 }}>via {a.managedBy}</span>}
               </td>
               <td className="r ratio">{a.ready || <span className="dim">—</span>}</td>
-              <td className={`mono${a.tag ? "" : " dim"}`} style={{ fontSize: 11 }} title={a.image || undefined}>
+              <td className={`mono${a.tag ? "" : " dim"}`} style={{ fontSize: "var(--fs-label)" }} title={a.image || undefined}>
                 {tagCell(a.tag)}
               </td>
-              <td className="r mono dim" style={{ fontSize: 11 }} title={a.revisionAt || undefined}>
+              <td className="r mono dim" style={{ fontSize: "var(--fs-label)" }} title={a.revisionAt || undefined}>
                 {revisionAge(a.revisionAt, now)}
               </td>
               <td className="r mono"><Restarts pods={a.pods} restarts={a.restarts} /></td>
               {usage && <Usage app={a} />}
-              <td className="dim" style={{ fontSize: 11, whiteSpace: "normal" }}>
+              <td className="dim" style={{ fontSize: "var(--fs-label)", whiteSpace: "normal" }}>
                 {a.health === "healthy" ? "" : a.detail}
               </td>
               <td className="r">
@@ -243,14 +243,14 @@ function LiveDot({ liveness }: { liveness: Liveness }) {
 function ScopeNote({ view }: { view: AppsView }) {
   const parts = [`scope: ${view.scope}`];
   if (view.metrics) parts.push(view.metrics.available ? `metrics: ${view.metrics.source}` : "metrics: none");
-  return <span className="page-sub mono" style={{ fontSize: 11 }}>{parts.join("  ·  ")}</span>;
+  return <span className="page-sub mono" style={{ fontSize: "var(--fs-label)" }}>{parts.join("  ·  ")}</span>;
 }
 
 function Empty({ head, body }: { head: string; body: string }) {
   return (
     <div className="empty">
       <div className="head">{head}</div>
-      <div className="mono" style={{ fontSize: 12 }}>{body}</div>
+      <div className="mono" style={{ fontSize: "var(--fs-data)" }}>{body}</div>
     </div>
   );
 }
