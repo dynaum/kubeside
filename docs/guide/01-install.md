@@ -32,6 +32,12 @@ That starts a server on `127.0.0.1:7654` and opens your browser. The server
 holds the credentials and talks to your clusters; the browser only ever talks to
 `127.0.0.1`.
 
+The page loads nothing from anywhere else. Stylesheets, scripts and the IBM Plex
+typeface all come out of the binary, so kubeside looks and works the same on a
+VPN-only laptop, behind egress rules, or on a network that has never heard of
+your machine. A test asserts it, because a missing request is invisible on a
+developer machine with open egress.
+
 Nothing is written to disk while it runs. No database, no cache, no history
 file. Stop the process and nothing is left behind.
 

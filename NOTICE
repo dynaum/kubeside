@@ -1,0 +1,14 @@
+kubeside
+Copyright 2026 Elber Ribeiro
+
+This product is licensed under the Apache License, Version 2.0. See LICENSE.
+
+It bundles and redistributes the following third-party work:
+
+IBM Plex (Sans, Mono, Sans Condensed)
+Copyright 2017 IBM Corp.
+Licensed under the SIL Open Font License, Version 1.1.
+Full text: web/src/fonts/LICENSE.txt
+
+The Latin and Latin Extended woff2 subsets are compiled into the binary so the
+UI renders identically without network access. They are not modified.
