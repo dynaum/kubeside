@@ -1,7 +1,20 @@
 # Theme switching and a type scale
 
 Date: 2026-08-01
-Status: approved, not yet built
+Status: shipped, #58 and #59
+
+Three things the implementation learned that this document did not know:
+
+- A row with an explanation in it grows past `--row-h` at large sizes, because
+  the "why" cell wraps. Correct behaviour, and it means a row-height assertion
+  has to measure a row that cannot wrap.
+- At 1.6 a dense table is wider than the window and scrolls sideways. Every
+  column stays reachable and the window itself never scrolls, both pinned by
+  tests. Whether horizontal scroll is the right answer is still open.
+- The product has ten distinct type sizes, not the seven the foundation
+  permits. `9px`, `9.5px`, `14px` and `20px` are outside the scale, and the
+  first two differ by half a pixel. They kept their shipped values, because
+  changing them is a design decision and this was a plumbing one.
 
 Two settings a developer can change: which theme the product uses, and how large
 its text is. Reachable from the command palette and from the keyboard, and from
@@ -154,7 +167,14 @@ No font family choice. IBM Plex is the design system.
 
 ## Open question
 
-`web/src/tokens.css` is a port of the Claude Design project's `tokens.css`.
-Adding `--scale` and the `--fs-*` tokens diverges the two. Either push the layer
-back to that project, or record the divergence here and let it drift
-deliberately. Not decided; the local work does not depend on the answer.
+`web/src/tokens.css` is a port of the Claude Design project's `tokens.css`. The
+two have now diverged in four ways, none of them pushed back:
+
+- `--scale` and the ten `--fs-*` tokens
+- `--row-h` and four fixed widths expressed as `calc()`
+- the `@media (prefers-color-scheme: light)` block the CSP made necessary
+- the font `@import`, which points at `./fonts.css` rather than Google
+
+Still undecided: push the layer back so the two stay in step, or let the repo
+be the source of truth for the product and treat the design project as the
+visual reference it was. Writing to a shared project needs a human to say so.
