@@ -489,14 +489,28 @@ func TestAPIStillRequiresTokenAfterStaticExemption(t *testing.T) {
 	}
 }
 
-func TestCSPAllowsPlexFontsOnly(t *testing.T) {
+// The fonts ship in the binary, so the policy has no reason to name anybody
+// else's host. A permission nothing uses is one an injected style or font can
+// still reach through, and it contradicts the guarantee the offline test makes
+// in the browser.
+func TestCSPNamesNoForeignHost(t *testing.T) {
 	s := newTestServer(t)
 	csp := do(t, s, "GET", "/", nil).Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "fonts.googleapis.com") || !strings.Contains(csp, "fonts.gstatic.com") {
-		t.Errorf("CSP should permit the Plex font host: %q", csp)
+	for _, host := range []string{"fonts.googleapis.com", "fonts.gstatic.com", "http://", "https://"} {
+		if strings.Contains(csp, host) {
+			t.Errorf("CSP names %q, but the UI loads nothing from another origin: %q", host, csp)
+		}
 	}
 	if strings.Contains(csp, "unsafe-eval") {
 		t.Errorf("CSP must not allow eval: %q", csp)
+	}
+	// Inline styles stay: the components set CSS variables and a few one-off
+	// values through the style attribute, which this policy has always allowed.
+	if !strings.Contains(csp, "style-src 'self' 'unsafe-inline'") {
+		t.Errorf("CSP = %q, want inline styles still permitted", csp)
+	}
+	if !strings.Contains(csp, "font-src 'self'") {
+		t.Errorf("CSP = %q, want fonts served from this origin", csp)
 	}
 }
 

@@ -8,7 +8,15 @@
 import type { AppView, ContextView } from "./api";
 import type { Route } from "./route";
 
-/** Command is one thing the palette can do. */
+/**
+ * Actions the palette can run that are not navigation.
+ *
+ * A string rather than a closure, so this module stays pure and testable and
+ * the component owns the doing. Routes already work this way.
+ */
+export type Action = "theme:cycle" | "scale:up" | "scale:down" | "scale:reset";
+
+/** Command is one thing the palette can do: go somewhere, or change something. */
 export interface Command {
   id: string;
   group: string;
@@ -17,7 +25,9 @@ export interface Command {
   hint?: string;
   /** health colours the glyph for app rows; absent for plain actions. */
   health?: string;
-  route: Route;
+  /** Exactly one of route or action is set. */
+  route?: Route;
+  action?: Action;
 }
 
 export interface Match {
@@ -110,6 +120,42 @@ export function commands(
       route: { screen: "apps", context: c.name },
     });
   }
+
+  // Last, because somebody opening the palette to reach an app should not wade
+  // through settings to get there. Discoverable, not in the way.
+  //
+  // The labels carry the words people actually type. Someone who cannot read a
+  // 10px column header searches "bigger", not "scale".
+  out.push(
+    {
+      id: "set:theme",
+      group: "Settings",
+      label: "Theme: switch between dark, light and system",
+      hint: "⌘⇧L",
+      action: "theme:cycle",
+    },
+    {
+      id: "set:scale-up",
+      group: "Settings",
+      label: "Text size: larger, bigger font",
+      hint: "⌘⌥+",
+      action: "scale:up",
+    },
+    {
+      id: "set:scale-down",
+      group: "Settings",
+      label: "Text size: smaller, denser font",
+      hint: "⌘⌥-",
+      action: "scale:down",
+    },
+    {
+      id: "set:scale-reset",
+      group: "Settings",
+      label: "Text size: reset font to normal",
+      hint: "⌘⌥0",
+      action: "scale:reset",
+    },
+  );
 
   return out;
 }

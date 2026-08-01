@@ -230,10 +230,17 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// The token rides in the URL until it is exchanged, so no request from
 		// this page should carry a Referer anywhere.
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// No host but this one. IBM Plex is compiled into the binary, so the
+		// policy that used to permit Google's font hosts was permitting nothing
+		// the product does and something an injected style still could.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; frame-ancestors 'none'; img-src 'self' data:; "+
-				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
-				"font-src 'self' https://fonts.gstatic.com; "+
+				// Inline styles only: components set CSS variables and one-off
+				// values through the style attribute. Inline *scripts* stay
+				// forbidden by default-src, which is why the theme is applied
+				// from a module rather than from a script tag in the head.
+				"style-src 'self' 'unsafe-inline'; "+
+				"font-src 'self'; "+
 				// The server binds 127.0.0.1, so the IPv6 loopback form is not needed,
 				// and Chromium rejects it as an invalid source anyway.
 				"connect-src 'self' ws://127.0.0.1:* ws://localhost:*")

@@ -135,3 +135,45 @@ describe("split", () => {
     expect(split("payments", [])).toEqual([{ text: "payments", hit: false }]);
   });
 });
+
+describe("settings commands", () => {
+  const list = () => commands([ctx("qa1", "qa")], ctx("qa1", "qa"), [], { screen: "apps", context: "qa1" });
+
+  // feature:palette's rule is that every action is reachable from the keyboard.
+  // These are the only two settings the product has, so they belong here or
+  // nowhere, and nowhere is what shipped.
+  it("offers theme and text size", () => {
+    const ids = list().map((c) => c.id);
+    expect(ids).toContain("set:theme");
+    expect(ids).toContain("set:scale-up");
+    expect(ids).toContain("set:scale-down");
+    expect(ids).toContain("set:scale-reset");
+  });
+
+  it("carries an action rather than a route", () => {
+    const theme = list().find((c) => c.id === "set:theme")!;
+    expect(theme.action).toBe("theme:cycle");
+    expect(theme.route).toBeUndefined();
+    expect(theme.group).toBe("Settings");
+  });
+
+  // Somebody who cannot read the screen types what they want, not the word the
+  // product happens to use for it.
+  it("is findable by the words people type", () => {
+    for (const q of ["theme", "dark", "light"]) {
+      expect(search(list(), q).map((m) => m.command.id)).toContain("set:theme");
+    }
+    for (const q of ["larger", "bigger", "font", "text"]) {
+      expect(search(list(), q).map((m) => m.command.id)).toContain("set:scale-up");
+    }
+  });
+
+  // The palette is also how somebody discovers what the tool can do, but a
+  // developer opening it to reach an app should not wade through settings.
+  it("sits below the apps and views", () => {
+    const all = list();
+    const firstSetting = all.findIndex((c) => c.group === "Settings");
+    const lastView = all.map((c) => c.group).lastIndexOf("Views");
+    expect(firstSetting).toBeGreaterThan(lastView);
+  });
+});
