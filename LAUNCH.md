@@ -1,9 +1,14 @@
 # Release and launch
 
-The release path is live and documented below. The launch was a deliberate
-skip: v1.0.0 and v1.0.1 shipped without an announcement, and the drafts in
-section 3 were never sent. They are kept for whoever decides the product is
-worth telling people about, not as a to-do.
+The release path is live and documented below. v1.0.0 and v1.0.1 shipped
+without an announcement; the posts in section 3 are written and checked and
+have not been sent.
+
+One rule before any of them goes out: what `brew install` hands over has to be
+what the post describes. v1.0.1 sat on the tap for ten commits, long enough to
+be missing usage columns, the app row's tag and age and restarts, the
+self-hosted fonts, the light theme and the text size control. A post describing
+main would have described a build nobody could install.
 
 ## 1. The site
 
@@ -31,13 +36,13 @@ that no internal link points at nothing.
 
 ## 2. Releases
 
-v1.0.0 is out. Cutting the next one is a tag:
+Cutting one is a tag:
 
 ```
-git tag -a v1.0.1 -m "v1.0.1" && git push origin v1.0.1
+git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 gh run watch                       # builds the UI, then the six archives
-gh release view v1.0.1             # a draft until you publish it
-gh release edit v1.0.1 --draft=false
+gh release view vX.Y.Z             # a draft until you publish it
+gh release edit vX.Y.Z --draft=false
 ```
 
 One thing is not automatic yet, and it fails quietly. The Homebrew formula lives
@@ -53,48 +58,75 @@ Before publishing, run the binary once from the archive on a machine that is not
 this one. The release workflow verifies the UI reached the binary; it does not
 verify that a downloaded archive opens on a Mac with Gatekeeper.
 
-## 3. Posts, unsent
+## 3. Posts
 
-Nothing here has been published anywhere. Three audiences, three registers, each
-a draft to edit rather than to send as-is. The rule for all of them: claim only
-what the product does today. Every sentence below was checkable against the
-repository when it was written, and would need rechecking before it went out.
+Checked against the repository at v1.1.0. The rule stands: claim only what the
+product does today, and recheck before sending, because these age with the code.
+
+Post them on different days. The same link in two places within an hour reads as
+a campaign, and the Reddit crowd notices.
 
 ### Show HN
 
-Title:
+Title, 77 characters against a limit of 80:
 
-> Show HN: Kubeside – a Kubernetes client scoped to the developer, not the operator
+> Show HN: Kubeside – a Kubernetes client that shows your app, not your cluster
+
+URL field: `https://github.com/dynaum/kubeside`
 
 Body:
 
-> I kept opening k9s to answer four questions and having to think in ReplicaSets
-> to get to them: is my app up, what changed and when, what do the logs say
-> across every pod, and what configuration did the container actually receive.
-> Every tool I tried is excellent at the operator's job and treats clusters as a
-> switcher: pick one, look at it, pick another. Developers have qa, stg, and
-> prod, and the question usually spans all three.
+> I kept opening k9s to answer four questions and having to think in
+> ReplicaSets to get to them: is my app up, what changed and when, what do the
+> logs say across every pod at once, and what configuration did the container
+> actually receive.
 >
-> Kubeside is one Go binary with an embedded UI. It reads the kubeconfig already
-> on your machine, connects every context, and groups objects into apps rather
-> than kinds. It writes nothing to disk: the timeline is reconstructed from what
-> the cluster still holds, in ReplicaSets, ControllerRevisions, Helm release
-> secrets, and pod termination states, then extended live while the process
-> runs.
+> The tools I tried are good at the operator's job. They mirror the API tree,
+> and they treat a cluster as the unit of work: pick one, look at it, pick
+> another. My unit of work is one app across qa, stg and prod, and the question
+> usually spans all three.
 >
-> Two rules it holds itself to. Absence of knowledge is not absence of a thing:
-> an empty axis is never rendered as a quiet period, a metric it could not take
-> is reported as unavailable rather than as zero, and a source it could not read
-> is named. And a control is never hidden for lack of permission: it is
-> disabled, and it names the verb the cluster refused, resolved through
-> SelfSubjectAccessReview.
+> Kubeside is one Go binary with the UI embedded. It reads the kubeconfig you
+> already have, connects every context, and groups objects into apps:
+> recommended labels first, then the Helm release annotation, then the Argo
+> instance label, then the owner chain, then the workload name. Every row says
+> which rule produced it, so a list that looks wrong tells you why it looks
+> wrong.
 >
-> It refuses a long list of things on purpose: no node view, no RBAC editor, no
-> CRD browser, no Helm management, no cost reporting, no topology graph. Those
-> belong to a different person's tool.
+> It writes nothing to disk. No database, no cache, no agent in your cluster.
+> The timeline is reconstructed on demand from what the cluster still holds:
+> ReplicaSets, ControllerRevisions, Helm release secrets, pod termination
+> states, and events still inside the apiserver TTL. That is also why it cannot
+> show you last month, and it says so on the axis instead of drawing an empty
+> one.
 >
-> The reasoning is all in the repository, including the research the design came
-> from and the anti-requirements drawn from other tools' issue trackers.
+> Two rules I held it to.
+>
+> Absence of knowledge is not absence of a thing. An unknown window is hatched,
+> never drawn as a quiet period. A metric it could not take reads as
+> unavailable, never as zero. A kind it could not list is named.
+>
+> A control is never hidden for lack of permission. It is disabled, and it names
+> the verb the cluster refused, resolved through SelfSubjectAccessReview.
+>
+> It refuses plenty on purpose: no node view, no RBAC editing, no CRD browser,
+> no Helm management, no cost reporting, no topology graph. Those belong to a
+> different person's tool.
+>
+> Not there yet: Prometheus as a metrics source is a stub, metrics-server is
+> what works. There is no in-cluster team mode.
+>
+> What I would most like broken is the grouping. It behaves on clusters I
+> control, and clusters I control have tidy labels by construction. If you point
+> `kubeside --print` at something organically grown, I want to know whether the
+> list reads like your apps or like noise.
+>
+> brew install dynaum/tap/kubeside, or binaries for macOS, Linux and Windows on
+> the releases page. Apache-2.0.
+
+One decision left in this one. The repository is agent-driven by design, and
+Hacker News reacts badly when it learns that from a commenter rather than from
+the author. Saying it in the post costs less than being found out in the thread.
 
 ### r/kubernetes
 
@@ -104,21 +136,64 @@ Title:
 
 Body:
 
-> Every dashboard I have used mirrors the API tree, and every one treats the
-> cluster as the unit of work. As an application developer my unit of work is an
-> app across qa, stg, and prod, and my four questions are: is it up, what
-> changed, what do the logs say across every replica, and what config did the
-> container actually get.
+> Every dashboard I have used mirrors the API tree: pick a kind, browse
+> instances, pick a cluster from a switcher. That is the right shape for the
+> person running the cluster. It is the wrong shape for the person shipping the
+> app.
 >
-> So I built the tool for that and refused everything else. One binary, embedded
-> UI, no database, no agent in the cluster, no setup: if kubectl works, it
-> works. Read-only by default, with the write path gated on the cluster's own
-> RBAC answer rather than on a config flag.
+> My unit of work is one service across qa, stg and prod. My questions are:
 >
-> The parts I would most like criticism on are the app-grouping heuristics
-> (owner references first, then recommended labels, then Argo, then workload
-> name) and the timeline reconstruction, since both fail differently on
-> organically grown clusters than on clean demo ones.
+> - Is it up?
+> - What changed, when, and who changed it?
+> - What do the logs say across every replica at once?
+> - What configuration did the container actually receive?
+>
+> So I built the tool for those four and refused everything else.
+>
+> One Go binary with the UI embedded. It reads the kubeconfig you already have
+> and connects every context. No database, no cache, no agent in the cluster, no
+> setup step. If kubectl works, it works.
+>
+> It groups objects into apps rather than kinds, in this order: recommended
+> labels, the Helm release annotation, the Argo instance label, the owner
+> reference chain, then the workload name as a last resort. Every row tells you
+> which rule produced it, so a list that looks wrong tells you why.
+>
+> The timeline is reconstructed on demand from history the cluster already
+> keeps: ReplicaSets, ControllerRevisions, Helm release secrets, pod termination
+> states, and events still inside the apiserver TTL. Nothing is stored, so it
+> cannot show you last month. It marks on the axis where its knowledge ends
+> instead of drawing an empty stretch and letting you read that as a quiet
+> period.
+>
+> Read-only by default. The write path is gated on the cluster's own answer
+> through SelfSubjectAccessReview rather than on a config flag, and a control
+> you lack permission for is disabled with the missing verb named, never hidden.
+>
+> Deliberately absent: node view, RBAC editing, CRD browsing, Helm management,
+> cost reporting, topology graphs.
+>
+> Honest gaps: Prometheus as a metrics source is a stub, metrics-server is what
+> works today. There is no in-cluster team mode yet.
+>
+> What I want criticism on is the grouping and the timeline reconstruction. Both
+> behave on clusters I built, and clusters I built have tidy labels by
+> construction. They fail differently on organically grown ones. If you run
+> kubeside --print against a cluster whose labelling nobody controlled, I want
+> to know whether the app list reads like your apps or like noise.
+>
+> Apache-2.0, macOS, Linux and Windows.
+>
+> https://github.com/dynaum/kubeside
+
+Read the subreddit rules first. r/kubernetes restricts self-promotion, and a
+project post from an account with no history there can be removed or pushed to a
+weekly thread. Check whether a flair is required.
+
+The grouping order above is the real one, and it is worth stating precisely: the
+earlier draft of this post had it backwards, claiming owner references came
+first. That paragraph is the one inviting scrutiny, so it is the worst place to
+be wrong. The chain is in `internal/apps/apps.go`.
 
 ### CNCF Slack
 
