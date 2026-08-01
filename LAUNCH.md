@@ -1,9 +1,9 @@
-# Launch
+# Release and launch
 
-Everything here needs a human. The site is built and the release pipeline is
-wired, but publishing a first release under someone's name, and posting to three
-communities as that person, are their decisions to make and their words to send.
-Drafts below; nothing has been posted.
+The release path is live and documented below. The launch was a deliberate
+skip: v1.0.0 and v1.0.1 shipped without an announcement, and the drafts in
+section 3 were never sent. They are kept for whoever decides the product is
+worth telling people about, not as a to-do.
 
 ## 1. The site
 
@@ -53,11 +53,12 @@ Before publishing, run the binary once from the archive on a machine that is not
 this one. The release workflow verifies the UI reached the binary; it does not
 verify that a downloaded archive opens on a Mac with Gatekeeper.
 
-## 3. Post
+## 3. Posts, unsent
 
-Three audiences, three registers. Each is a draft to edit, not to send as-is.
-The rule for all of them: claim only what the product does today. Every sentence
-below is checkable against the repository.
+Nothing here has been published anywhere. Three audiences, three registers, each
+a draft to edit rather than to send as-is. The rule for all of them: claim only
+what the product does today. Every sentence below was checkable against the
+repository when it was written, and would need rechecking before it went out.
 
 ### Show HN
 
@@ -131,9 +132,10 @@ tolerates a project post. Read the channel's rules first.
 > container receive. No storage layer, nothing written to disk. Apache-2.0.
 > Feedback on the grouping heuristics is what I am after.
 
-## 4. After
+## 4. The question that still matters
 
-Watch the first hour of issues. The failure most likely to arrive is an app list
-that does not match what somebody recognises as their own apps, from a cluster
-whose labelling nobody controls. That is the product's central bet, and the one
-question worth answering before anything else in the backlog.
+Whether or not this is ever announced, one question outranks the rest of the
+backlog: does the app list match what somebody recognises as their own apps, on
+a cluster whose labelling nobody controlled? That is the product's central bet,
+and it can only be answered by a person with such a cluster running
+`kubeside --print` on it.
