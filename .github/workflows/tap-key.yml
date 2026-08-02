@@ -1,0 +1,66 @@
+name: tap key
+
+# Does TAP_DEPLOY_KEY actually open the tap?
+#
+# GitHub never reveals a secret's value, so a public key pasted by mistake, a
+# passphrase-protected key, a truncated paste and a correct key all look
+# identical from outside. Without this the answer arrives during a release,
+# which is the one moment nobody wants to be finding out.
+#
+# Nothing is pushed and nothing is built. It authenticates and lists refs.
+#
+# Run it after storing the key, after rotating it, and before a release you
+# care about:
+#   gh workflow run tap-key.yml && gh run watch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The deploy key must open the tap
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_DEPLOY_KEY}" ]; then
+            echo "::error::TAP_DEPLOY_KEY is not set. GoReleaser will skip the formula push."
+            exit 1
+          fi
+
+          key="$(mktemp)"
+          # A key without a trailing newline is a common paste error and ssh
+          # rejects it with a message that names neither cause nor fix.
+          printf '%s\n' "${TAP_DEPLOY_KEY}" > "$key"
+          chmod 600 "$key"
+          trap 'rm -f "$key"' EXIT
+
+          if ! head -1 "$key" | grep -q "BEGIN .*PRIVATE KEY"; then
+            echo "::error::The secret is not a private key. The public half belongs on the tap as a deploy key; the private half belongs here."
+            exit 1
+          fi
+          if grep -q "ENCRYPTED" "$key"; then
+            echo "::error::The key is password-protected. GoReleaser cannot use it."
+            exit 1
+          fi
+
+          # The URL the release actually uses, read from the config rather than
+          # repeated here, so the two cannot drift apart.
+          url="$(grep -oE "ssh://[^']*" .goreleaser.yaml | head -1)"
+          echo "checking $url"
+
+          export GIT_SSH_COMMAND="ssh -i $key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -F /dev/null"
+          if ! git ls-remote "$url" >/dev/null 2>&1; then
+            echo "::error::The key did not open $url. Check it is the private half of the deploy key registered on the tap, with write access."
+            exit 1
+          fi
+
+          echo "the deploy key opens the tap; the next release can push the formula"
