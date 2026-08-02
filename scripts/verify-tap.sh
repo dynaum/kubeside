@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Verify the Homebrew tap serves the release that was just built.
 #
-# The formula lives in another repository, so GoReleaser needs a token with
-# contents:write on dynaum/homebrew-tap in TAP_GITHUB_TOKEN. Without it the
-# formula is generated and the push is skipped, and the skip is silent: the
+# The formula lives in another repository, so GoReleaser pushes it over SSH with
+# a deploy key, held in TAP_DEPLOY_KEY. Without that secret the formula is
+# generated and the push is skipped, and the skip is silent: the
 # release ships, `brew install` keeps handing out the previous version, and
 # nothing anywhere looks broken. v1.0.1 sat on the tap for ten commits that way.
 #
-# A token does not retire this check. Fine-grained tokens expire, and the day
-# one does the failure comes back identical. This is what turns it from silence
-# into a red run.
+# The deploy key does not retire this check. Keys get rotated, revoked and
+# mistyped, and every one of those failures looks exactly like the original.
+# This is what turns it from silence into a red run.
 #
 # GoReleaser creates the release as a draft, so this runs before anything is
 # public. A failure means nothing shipped, rather than something shipped wrong.
@@ -42,12 +42,14 @@ fail() {
 
 The release is still a draft, so nothing is public yet.
 
-Most likely TAP_GITHUB_TOKEN is missing or expired. Check:
+Most likely TAP_DEPLOY_KEY is missing, or its public half is no longer a
+deploy key on ${OWNER_REPO}. Check both:
   gh api repos/dynaum/kubeside/actions/secrets --jq '.secrets[].name'
+  gh api repos/${OWNER_REPO}/keys --jq '.[] | "\(.title) read_only=\(.read_only)"'
 
-Create a fine-grained token with access limited to ${OWNER_REPO} and
-Contents: Read and write, then store it:
-  gh secret set TAP_GITHUB_TOKEN --repo dynaum/kubeside
+The key must have write access and must not be password-protected. Store the
+private half with:
+  gh secret set TAP_DEPLOY_KEY --repo dynaum/kubeside < key
 
 Re-run this workflow afterwards. To fix the formula by hand instead, update
 ${FORMULA_PATH} in ${OWNER_REPO} from this release's checksums.txt,

@@ -45,9 +45,9 @@ gh release view vX.Y.Z             # a draft until you publish it
 gh release edit vX.Y.Z --draft=false
 ```
 
-The Homebrew formula lives in another repository, so GoReleaser needs a token
-with `contents: write` on `dynaum/homebrew-tap`, in the `TAP_GITHUB_TOKEN`
-secret. Without it the formula is generated and the push is skipped.
+The Homebrew formula lives in another repository, so GoReleaser needs its own
+credential to write there: the `TAP_DEPLOY_KEY` secret. Without it the formula
+is generated and the push is skipped.
 
 That skip used to be silent, which is how v1.0.1 sat on the tap for ten commits
 while `brew install` handed out a build missing half the product. It is not
@@ -55,16 +55,25 @@ silent now: `scripts/verify-tap.sh` runs at the end of the release and fails it
 unless the tap serves this tag with checksums matching this release. GoReleaser
 leaves the release a draft, so a red run means nothing was published.
 
-Create the token as a fine-grained one, with repository access limited to
-`dynaum/homebrew-tap` and `Contents: Read and write`:
+The push goes over SSH with a deploy key rather than through the API with a
+token. A deploy key is scoped to one repository, belongs to the repository
+rather than to a person, and does not expire. A fine-grained token expires
+within 366 days, and that day looks exactly like the original failure.
+
+Two halves, both required:
 
 ```
-gh secret set TAP_GITHUB_TOKEN --repo dynaum/kubeside
+# public half: write access on the tap
+gh api -X POST repos/dynaum/homebrew-tap/keys \
+  -f title="kubeside release (GoReleaser)" -f key="$(pbpaste)" -F read_only=false
+
+# private half: readable by the release
+gh secret set TAP_DEPLOY_KEY --repo dynaum/kubeside < /path/to/key
 ```
 
-Fine-grained tokens expire, at most 366 days out. When one does, the release
-goes red rather than quiet, and the fix is a new token or a hand-edit of
-`Formula/kubeside.rb` from the release's own `checksums.txt`.
+The key must not be password-protected; GoReleaser is explicit about that. A key
+kept in 1Password works, but the private half still has to be exported into the
+secret, because a GitHub runner cannot reach a local SSH agent.
 
 The check runs standalone too, which is how to confirm a hand-edit landed:
 

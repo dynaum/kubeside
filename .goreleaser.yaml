@@ -47,11 +47,19 @@ brews:
     # GoReleaser writes to the repository root, which is why the first v1.0.0
     # attempt was reaching for /kubeside.rb.
   - directory: Formula
-    skip_upload: '{{ if .Env.TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if .Env.TAP_DEPLOY_KEY }}false{{ else }}true{{ end }}'
     repository:
       owner: dynaum
       name: homebrew-tap
-      token: '{{ .Env.TAP_GITHUB_TOKEN }}'
+      branch: master
+      # Pushed over SSH with a deploy key rather than through the API with a
+      # token. A deploy key is scoped to this one repository, belongs to the
+      # repository rather than to a person, and does not expire. A fine-grained
+      # token expires within 366 days, and the day it does the formula stops
+      # being pushed, which is the failure this whole path already had once.
+      git:
+        url: 'ssh://git@github.com/dynaum/homebrew-tap.git'
+        private_key: '{{ .Env.TAP_DEPLOY_KEY }}'
     homepage: https://github.com/dynaum/kubeside
     description: A Kubernetes client scoped to the developer, not the cluster operator
     license: Apache-2.0

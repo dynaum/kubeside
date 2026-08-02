@@ -48,9 +48,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Empty until somebody creates a token that may write to the tap. The
-          # formula is generated either way; only the push is skipped.
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # Empty until the deploy key is stored. The formula is generated
+          # either way; only the push is skipped, and the step below turns that
+          # skip into a failed run.
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
 
       # The skip above is silent, and silence is the whole problem: the release
       # ships, brew keeps handing out the previous version, and nothing looks
