@@ -45,14 +45,32 @@ gh release view vX.Y.Z             # a draft until you publish it
 gh release edit vX.Y.Z --draft=false
 ```
 
-One thing is not automatic yet, and it fails quietly. The Homebrew formula lives
-in another repository, so GoReleaser needs a token with `contents: write` on
-`dynaum/homebrew-tap`, in the `TAP_GITHUB_TOKEN` secret. Without it the formula
-is generated and the push is skipped, which means a new release ships while
-`brew install` keeps handing out the previous version and nothing looks wrong.
+The Homebrew formula lives in another repository, so GoReleaser needs a token
+with `contents: write` on `dynaum/homebrew-tap`, in the `TAP_GITHUB_TOKEN`
+secret. Without it the formula is generated and the push is skipped.
 
-Until that secret exists, update `Formula/kubeside.rb` in the tap by hand from
-the release's own `checksums.txt`.
+That skip used to be silent, which is how v1.0.1 sat on the tap for ten commits
+while `brew install` handed out a build missing half the product. It is not
+silent now: `scripts/verify-tap.sh` runs at the end of the release and fails it
+unless the tap serves this tag with checksums matching this release. GoReleaser
+leaves the release a draft, so a red run means nothing was published.
+
+Create the token as a fine-grained one, with repository access limited to
+`dynaum/homebrew-tap` and `Contents: Read and write`:
+
+```
+gh secret set TAP_GITHUB_TOKEN --repo dynaum/kubeside
+```
+
+Fine-grained tokens expire, at most 366 days out. When one does, the release
+goes red rather than quiet, and the fix is a new token or a hand-edit of
+`Formula/kubeside.rb` from the release's own `checksums.txt`.
+
+The check runs standalone too, which is how to confirm a hand-edit landed:
+
+```
+scripts/verify-tap.sh v1.1.0
+```
 
 Before publishing, run the binary once from the archive on a machine that is not
 this one. The release workflow verifies the UI reached the binary; it does not

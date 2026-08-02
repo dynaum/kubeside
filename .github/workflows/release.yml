@@ -51,3 +51,15 @@ jobs:
           # Empty until somebody creates a token that may write to the tap. The
           # formula is generated either way; only the push is skipped.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      # The skip above is silent, and silence is the whole problem: the release
+      # ships, brew keeps handing out the previous version, and nothing looks
+      # broken. v1.0.1 sat on the tap for ten commits that way, and would have
+      # been what a launch post sent people to install.
+      #
+      # GoReleaser leaves the release a draft, so this runs before anything is
+      # public. Red here means nothing shipped, rather than something shipped
+      # wrong. A token does not retire the check either: fine-grained tokens
+      # expire, and the day one does this comes back identical.
+      - name: The tap must serve this tag
+        run: ./scripts/verify-tap.sh "${GITHUB_REF_NAME}"
