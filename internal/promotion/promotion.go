@@ -243,6 +243,28 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 			}
 			return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: reason, Clusters: clusters}, false
 		}
+
+		// service.go's denied placeholders carry no App name and are filtered
+		// out before Build ever sees them, so a fully or partially unread
+		// environment reaches here with denied == 0 and an empty group. Absent
+		// requires every context to have actually answered; anything less is a
+		// fact this cell must not erase.
+		if len(env.Unreadable) > 0 {
+			unread := len(env.Unreadable)
+			if unread >= len(env.Contexts) {
+				note := fmt.Sprintf("%d of %d clusters did not answer", unread, clusters)
+				return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: note, Clusters: clusters}, false
+			}
+			// Some, but not all, contexts answered, and none of them have the
+			// app. That is not "not deployed here": the clusters that stayed
+			// silent might. Name what was read and what was not, same as the
+			// fully-unread case, rather than inventing a disagreement no
+			// instance actually showed.
+			readable := clusters - unread
+			note := fmt.Sprintf("not found in the %d of %d clusters read; %d did not answer and may have it", readable, clusters, unread)
+			return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: note, Clusters: clusters}, false
+		}
+
 		return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateAbsent, Note: "not deployed here", Clusters: clusters}, false
 	}
 

@@ -630,3 +630,105 @@ func TestNamespaceIsFirstNonEmptyInTheGroup(t *testing.T) {
 		t.Errorf("namespace = %q, want team-a: the first non-empty namespace in the group, not always group[0]", c.Namespace)
 	}
 }
+
+// --- Issue #75: an unread environment must not render "not deployed here" ---
+//
+// service.go builds its denied placeholders with an empty App name, and the
+// `in.App != ""` filter strips them before promotion.Build ever sees them. So
+// resolve()'s len(present) == 0 path saw denied == 0 for an environment
+// nobody could read, and returned StateAbsent. Env.Unreadable now carries
+// exactly the information resolve() was ignoring.
+
+// A fully unreadable environment (every context in Unreadable) with no
+// present instances must render denied, not absent, and must name how many
+// clusters did not answer.
+func TestFullyUnreadableEnvironmentIsDeniedNotAbsent(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a", "prod-b", "prod-c"}, Unreadable: []string{"prod-a", "prod-b", "prod-c"}}
+	_, c, ok := resolve(env, nil, nil)
+	if c.State == StateAbsent {
+		t.Fatalf("state = %q, want anything but absent: no context in this environment answered", c.State)
+	}
+	if c.State != StateDenied {
+		t.Fatalf("state = %q, want denied: every context failed to answer, same fact as a single denied cluster", c.State)
+	}
+	if !strings.Contains(c.Note, "3") {
+		t.Errorf("note = %q, want it to name how many clusters did not answer", c.Note)
+	}
+	if ok {
+		t.Error("ok = true; a fully unreadable environment must never become the upstream for the next column")
+	}
+}
+
+// The broader form of the same bug: an app absent from the READABLE clusters
+// of a partially readable environment might still be running in the cluster
+// nobody read. This must never render absent either.
+func TestPartiallyUnreadableEnvironmentIsNotAbsentEither(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a", "prod-b", "prod-c"}, Unreadable: []string{"prod-c"}}
+	_, c, ok := resolve(env, nil, nil)
+	if c.State == StateAbsent {
+		t.Fatalf("state = %q, want anything but absent: prod-c never answered and might have it", c.State)
+	}
+	if c.Note == "" {
+		t.Fatal("a cell that cannot claim absence should say what was read and what was not")
+	}
+	if !strings.Contains(c.Note, "2") || !strings.Contains(c.Note, "1") {
+		t.Errorf("note = %q, want it to name both the clusters read (2) and the cluster that did not answer (1)", c.Note)
+	}
+	if ok {
+		t.Error("ok = true; a partially unreadable environment must never become the upstream for the next column")
+	}
+}
+
+// Regression guard: when every context in the environment actually answered
+// and none of them have the app, "not deployed here" still stands. This is
+// the ordinary case the fix must not disturb.
+func TestFullyReadableAbsentEnvironmentStillReadsAbsent(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a", "prod-b", "prod-c"}}
+	_, c, ok := resolve(env, nil, nil)
+	if c.State != StateAbsent || c.Note != "not deployed here" {
+		t.Fatalf("cell = %+v, want absent/\"not deployed here\": every context answered and found nothing", c)
+	}
+	if ok {
+		t.Error("ok = true; an absent cell must never become upstream")
+	}
+}
+
+// A cell rendered denied because its environment was unreadable (fully or
+// partially, with zero present instances) must not become the basis the
+// next column is compared against, exactly like the pre-existing denied and
+// absent paths.
+func TestUnreadableEmptyEnvironmentDoesNotBecomeUpstream(t *testing.T) {
+	envs := []Env{
+		{Name: "qa", Contexts: []string{"qa-cluster"}},
+		{Name: "stg", Contexts: []string{"stg-a", "stg-b", "stg-c"}, Unreadable: []string{"stg-a", "stg-b", "stg-c"}},
+		{Name: "prod", Contexts: []string{"prod-cluster"}},
+	}
+	rows := Build(envs, []Instance{
+		{Env: "qa", Context: "qa-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:aa"},
+		{Env: "prod", Context: "prod-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:aa"},
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSame {
+		t.Errorf("prod state = %q, want %q: prod matches qa, and the unreadable stg column never became the basis", c.State, StateSame)
+	}
+	stg := cell(at(t, rows, "checkout"), "stg")
+	if stg.State != StateDenied {
+		t.Errorf("stg state = %q, want denied", stg.State)
+	}
+}
+
+// Finding-5-style guard: the pre-existing denied path, where a real named
+// instance carries Denied: true, must be untouched by this fix.
+func TestNamedDeniedInstanceStillDeniedAlongsideUnreadable(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a", "prod-b"}, Unreadable: []string{"prod-a"}}
+	group := []Instance{
+		{Env: "prod", App: "checkout", Namespace: "shop", Denied: true, DeniedReason: "needs get deployments"},
+	}
+	_, c, ok := resolve(env, group, nil)
+	if c.State != StateDenied || c.Note != "needs get deployments" {
+		t.Fatalf("cell = %+v, want the named denial reason preserved untouched", c)
+	}
+	if ok {
+		t.Error("ok = true; a denied cell must never become upstream")
+	}
+}

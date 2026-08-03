@@ -186,26 +186,32 @@ Cell behavior for a multi-context environment:
 | All present and agreeing on tag and digest | Collapses to one version, identical to today |
 | Present, disagreeing on tag or digest | `StateSplit`, severe, naming the count, linking to fleet |
 | Mixed present and absent | `StateSplit`. Deployed in two of three clusters is not deployed |
-| Mixed readable and denied | `StateSplit`. Partial visibility never collapses |
-| All denied | `StateDenied`. Not identical to today, see below |
-| All absent | `StateAbsent`, identical to today |
+| Mixed readable and denied, at least one present | `StateSplit`. Partial visibility never collapses |
+| No instances present, some or all contexts unread | `StateDenied`, naming what was read and what was not. Never `StateAbsent` |
+| All contexts read, no instances present | `StateAbsent`, identical to today |
 
-The all-denied row needs a correction, found while reviewing the service
-wiring on 2026-08-03. Today an environment nobody could read does NOT render
-denied. `Service.Promotion` builds its denied placeholders with an empty app
-name, the `in.App != ""` filter strips them before `promotion.Build` sees
-them, and `resolve()` receives an empty group and returns `StateAbsent` with
-the note "not deployed here". Only a banner says otherwise.
+The no-instances-present row was wrong until issue #75. `Service.Promotion`
+builds its denied placeholders with an empty app name, the `in.App != ""`
+filter strips them before `promotion.Build` sees them, and `resolve()`
+received an empty group with no way to tell "nobody answered" from "everybody
+answered and found nothing". It returned `StateAbsent` with the note "not
+deployed here" in both cases. Only a banner said otherwise.
 
-The same path also mislabels a partially readable environment: an app absent
-from the clusters that answered renders "not deployed here" while an unread
-cluster may be running it.
+The same path also mislabeled a partially readable environment: an app absent
+from the clusters that answered rendered "not deployed here" while an unread
+cluster might be running it.
 
-That conflates the two facts this whole feature exists to keep apart, and it
-breaks the hard rule against rendering an unknown window as an empty one. It
-predates this work, and populating `Env.Unreadable` is what makes it fixable.
-Tracked as issue #75 and treated as a ship blocker: shipping with the
-information present and ignored is worse than shipping without it.
+That conflated the two facts this whole feature exists to keep apart, and it
+broke the hard rule against rendering an unknown window as an empty one.
+`resolve()` now consults `Env.Unreadable` before deciding: any unread context
+in the group, full or partial, renders `StateDenied` instead, with a note
+naming how many clusters answered and how many did not. `StateSplit` was
+considered for the partial case and rejected, because `StateSplit` means
+instances were observed and disagreed; here the readable clusters unanimously
+agree the app is absent; the only open question is a cluster nobody read, and
+that is what `StateDenied` already means everywhere else in this matrix. Only
+an environment where every context actually answered, and none of them have
+the app, may still say "not deployed here". Fixed and closed.
 
 A split cell never becomes the upstream for the next column. This follows the
 existing rule at `promotion.go:151`, where an unreadable environment is not an
