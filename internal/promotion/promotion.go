@@ -178,7 +178,11 @@ func row(envs []Env, instances []Instance) Row {
 	for _, env := range envs {
 		rep, cell, ok := resolve(env, byEnv[env.Name], upstream)
 		out.Cells = append(out.Cells, cell)
-		if cell.State != StateSame {
+		// Absent and denied are not comparisons: there is nothing to compare
+		// against, or nothing we were allowed to read. Only a cell that was
+		// actually evaluated moves the drift count. A split cell was
+		// evaluated, and disagreed, so it counts.
+		if cell.State != StateSame && cell.State != StateAbsent && cell.State != StateDenied {
 			out.Drift++
 		}
 		if cell.State == StateAhead {
@@ -215,6 +219,14 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 		}
 	}
 
+	// Namespace, when the instance is known: an absent or denied cell still
+	// names where it would have lived, because the app identity that got us
+	// here came from a real instance somewhere in this group.
+	ns := ""
+	if len(group) > 0 {
+		ns = group[0].Namespace
+	}
+
 	if len(present) == 0 {
 		if denied > 0 {
 			reason := "not readable"
@@ -224,9 +236,22 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 					break
 				}
 			}
-			return Instance{}, Cell{Env: env.Name, State: StateDenied, Note: reason, Clusters: clusters}, false
+			return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: reason, Clusters: clusters}, false
 		}
-		return Instance{}, Cell{Env: env.Name, State: StateAbsent, Note: "not deployed here", Clusters: clusters}, false
+		return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateAbsent, Note: "not deployed here", Clusters: clusters}, false
+	}
+
+	// More present instances than the environment declares clusters means the
+	// declared count cannot be trusted here: this is typically two namespaces
+	// (e.g. "shop" and "shop-prod") collapsing to one app identity inside a
+	// single environment, not genuinely distinct clusters. A coverage
+	// fraction built from that count would be a number known to be wrong, so
+	// decide on consensus alone and never cite the cluster count.
+	if len(present) > clusters {
+		if rep, agreed := consensus(present); agreed {
+			return rep, compare(rep, upstream), true
+		}
+		return Instance{}, splitOnConsensusOnly(env, present), false
 	}
 
 	readable := clusters - len(env.Unreadable)
@@ -289,15 +314,39 @@ func split(env Env, present []Instance, clusters, readable int) Cell {
 
 	switch {
 	case len(env.Unreadable) > 0:
+		// A cluster nobody read might disagree, so unreadable always wins:
+		// neither agreement nor a defect can be claimed from clusters we
+		// never saw.
 		c.Note = fmt.Sprintf("%d of %d clusters readable; the rest did not answer", readable, clusters)
-	case len(present) < readable:
-		c.Note = fmt.Sprintf("deployed in %d of %d clusters", len(present), clusters)
 	case len(tags) == 1 && len(digests) > 1:
+		// A mutable tag outranks partial coverage. One tag resolving to two
+		// digests is a defect; a cluster not having the app yet is a
+		// schedule, and the defect is the worse fact to hide.
 		c.Tag = ""
 		c.Note = fmt.Sprintf("one tag across %d clusters but %d digests: the tag is mutable and these are not the same code", clusters, len(digests))
+	case len(present) < readable:
+		c.Note = fmt.Sprintf("deployed in %d of %d clusters", len(present), clusters)
 	default:
 		c.Note = fmt.Sprintf("%d versions across %d clusters", len(tags), clusters)
 	}
+	return c
+}
+
+// splitOnConsensusOnly is the cell for an environment where more instances
+// are present than the environment declares clusters for (see resolve). The
+// declared cluster count is not meaningful in that case, so this never prints
+// a coverage fraction or a cluster count.
+func splitOnConsensusOnly(env Env, present []Instance) Cell {
+	c := Cell{Env: env.Name, State: StateSplit, Severe: true}
+	if len(present) > 0 {
+		c.Namespace = present[0].Namespace
+	}
+
+	tags := map[string]bool{}
+	for _, in := range present {
+		tags[in.Tag] = true
+	}
+	c.Note = fmt.Sprintf("%d versions present in %s", len(tags), env.Name)
 	return c
 }
 
@@ -474,11 +523,4 @@ func hasPrerelease(tag string) bool {
 		}
 	}
 	return false
-}
-
-func orElse(v, fallback string) string {
-	if v == "" {
-		return fallback
-	}
-	return v
 }

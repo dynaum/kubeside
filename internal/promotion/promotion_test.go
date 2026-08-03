@@ -423,3 +423,152 @@ func TestSingleContextEnvironmentIsUnchanged(t *testing.T) {
 		t.Errorf("state = %q, want %q: one context per environment behaves exactly as before", c.State, StateBehind)
 	}
 }
+
+// --- Regression tests added while fixing review findings on task #62 ---
+
+// Finding 1: absent and denied cells are not comparisons, so they must not
+// move the drift count. The old (pre-multi-cluster) code `continue`d past the
+// drift increment for both; the multi-cluster rewrite briefly regressed this.
+func TestAbsentAndDeniedDoNotCountAsDrift(t *testing.T) {
+	rows := Build(envs(), []Instance{
+		running("qa", "notifications", "v0.9.1"),
+		{Env: "stg", App: "notifications", Namespace: "team-a", Denied: true, DeniedReason: "needs get deployments"},
+	})
+	r := at(t, rows, "notifications")
+	if cell(r, "stg").State != StateDenied {
+		t.Fatalf("stg cell = %+v, want denied", cell(r, "stg"))
+	}
+	if cell(r, "prod").State != StateAbsent {
+		t.Fatalf("prod cell = %+v, want absent", cell(r, "prod"))
+	}
+	if r.Drift != 0 {
+		t.Fatalf("drift = %d, want 0: a denied cell and an absent cell are not disagreements to count", r.Drift)
+	}
+}
+
+// A split cell is a genuine disagreement, unlike absent or denied, and must
+// still count toward drift.
+func TestSplitCellCountsAsDrift(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.12.0", "sha256:cc"),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	r := at(t, rows, "checkout")
+	if r.Drift != 1 {
+		t.Fatalf("drift = %d, want 1: a split prod cell is a real disagreement, and qa is absent (not counted)", r.Drift)
+	}
+}
+
+// Finding 2: Identity() strips the environment token from the namespace, so
+// "shop" and "shop-prod" in the SAME cluster/environment collapse to one app
+// identity with two instances in one env. Env.Contexts is empty here, so
+// clusters defaults to 1 and len(present) (2) exceeds it. The collapse guard
+// must not treat that as "1 of 1 clusters"; it must decide on consensus
+// alone.
+func TestMoreInstancesThanClustersCollapsesOnAgreement(t *testing.T) {
+	rows := Build([]Env{{Name: "prod"}}, []Instance{
+		{Env: "prod", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "prod", App: "checkout", Namespace: "shop-prod", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State == StateSplit {
+		t.Fatalf("state = %q; two agreeing instances must not split just because there are more of them than the environment declares clusters", c.State)
+	}
+	if c.Severe {
+		t.Error("agreeing instances should not render severe")
+	}
+}
+
+func TestMoreInstancesThanClustersSplitsOnDisagreementWithoutABogusCount(t *testing.T) {
+	rows := Build([]Env{{Name: "prod"}}, []Instance{
+		{Env: "prod", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "prod", App: "checkout", Namespace: "shop-prod", Present: true, Tag: "v2.0.0", Digest: "sha256:bb"},
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit || !c.Severe {
+		t.Fatalf("state = %q severe = %v, want a severe split: two instances in one environment disagree", c.State, c.Severe)
+	}
+	if strings.Contains(c.Note, "1 cluster") || strings.Contains(c.Note, "of 1") {
+		t.Errorf("note = %q; the environment declares one cluster but two instances exist here, so citing that count would be nonsense on a red cell", c.Note)
+	}
+	if c.Clusters != 0 {
+		t.Errorf("clusters = %d, want 0: the declared cluster count cannot be trusted once instances outnumber it", c.Clusters)
+	}
+}
+
+// Finding 3: a mutable tag (same tag, different digest) is a defect. Partial
+// coverage is a schedule. When both are true at once, the defect must win the
+// note, not the coverage fraction.
+func TestDigestMismatchOutranksPartialCoverage(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", "sha256:cc"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit || !c.Severe {
+		t.Fatalf("state = %q severe = %v, want a severe split", c.State, c.Severe)
+	}
+	if !strings.Contains(c.Note, "digest") {
+		t.Errorf("note = %q, want the digest mismatch named even though coverage is also partial", c.Note)
+	}
+	if strings.Contains(c.Note, "of 3") {
+		t.Errorf("note = %q; a mutable tag is a defect and should outrank a coverage fraction, not share the note with it", c.Note)
+	}
+}
+
+// Finding 4: Summary.Split is a named deliverable with no assertions on it.
+// Summarize breaks on the first split cell in a row, so a row with two split
+// cells must still count once.
+func TestSummaryCountsARowWithTwoSplitCellsOnce(t *testing.T) {
+	twoSplitEnvs := []Env{
+		{Name: "stg", Contexts: []string{"stg-a", "stg-b"}},
+		{Name: "prod", Contexts: []string{"prod-a", "prod-b"}},
+	}
+	rows := Build(twoSplitEnvs, []Instance{
+		{Env: "stg", Context: "stg-a", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "stg", Context: "stg-b", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:bb"},
+		{Env: "prod", Context: "prod-a", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "prod", Context: "prod-b", App: "checkout", Namespace: "shop", Present: true, Tag: "v3.0.0", Digest: "sha256:cc"},
+	})
+	s := Summarize(rows)
+	if s.Split != 1 {
+		t.Fatalf("split = %d, want 1: one row with two split cells still counts once", s.Split)
+	}
+}
+
+func TestSummaryCountsOneSplitRow(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.12.0", "sha256:cc"),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	s := Summarize(rows)
+	if s.Split != 1 {
+		t.Fatalf("split = %d, want 1", s.Split)
+	}
+}
+
+// Finding 5: the old code set Namespace on both absent and denied cells when
+// the instance was known. resolve() dropped it.
+func TestDeniedCellKeepsNamespace(t *testing.T) {
+	rows := Build(envs(), []Instance{
+		running("qa", "notifications", "v0.9.1"),
+		{Env: "prod", App: "notifications", Namespace: "team-a", Denied: true, DeniedReason: "needs get deployments"},
+	})
+	c := cell(at(t, rows, "notifications"), "prod")
+	if c.Namespace != "team-a" {
+		t.Errorf("namespace = %q, want team-a: the instance is known, even though it is denied", c.Namespace)
+	}
+}
+
+func TestAbsentCellKeepsNamespaceWhenTheInstanceIsKnown(t *testing.T) {
+	rows := Build(envs(), []Instance{
+		running("qa", "notifications", "v0.9.1"),
+		{Env: "prod", App: "notifications", Namespace: "team-a", Present: false},
+	})
+	c := cell(at(t, rows, "notifications"), "prod")
+	if c.Namespace != "team-a" {
+		t.Errorf("namespace = %q, want team-a: the instance is known even though it is not present", c.Namespace)
+	}
+}
