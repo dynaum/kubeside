@@ -33,7 +33,10 @@ type Placement struct {
 	Env       string `json:"env"`
 	Namespace string `json:"namespace,omitempty"`
 
-	State  string `json:"state"`
+	State string `json:"state"`
+	// Reason explains what the state cannot: why a cluster went unreachable or
+	// denied, and on a present row, anything the caller had to choose between
+	// to produce it.
 	Reason string `json:"reason,omitempty"`
 
 	Image  string `json:"image,omitempty"`
@@ -181,6 +184,19 @@ func Build(app, namespace string, ps []Placement) View {
 				r.Note = fmt.Sprintf("runs %s, and so does another cluster with a different digest", p.Tag)
 			default:
 				r.Note = verdict
+			}
+
+			// A present row can still carry a reason: the caller had two
+			// candidates for this one row and says which it took. It is appended
+			// rather than substituted, because the version verdict is what the
+			// screen is for and a choice nobody sees is a choice nobody can
+			// challenge.
+			if p.Reason != "" {
+				if r.Note == "" {
+					r.Note = p.Reason
+				} else {
+					r.Note += "; " + p.Reason
+				}
 			}
 		case StateUnreachable:
 			r.Note = orElse(p.Reason, "the cluster did not answer")

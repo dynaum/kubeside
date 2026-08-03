@@ -31,6 +31,11 @@ import (
 // one image, which is all the promotion matrix needs to compare versions.
 type fakeApp struct {
 	name, ns, image string
+	// imageID seeds a running pod owned by the Deployment, reporting this as
+	// the image it actually resolved to. The digest lives in pod status and
+	// nowhere else, so a fixture without one can only ever produce a placement
+	// whose digest is still pending.
+	imageID string
 }
 
 // fakeCluster is one kubeconfig context's worth of fixture: which environment
@@ -51,6 +56,10 @@ type fakeCluster struct {
 	// kinds land in Snapshot.Partial and Fetch returns a nil error, which is
 	// what lets a caller tell "denied" apart from "absent".
 	refusedKinds []string
+	// slow delays the connection by this much, the way a cluster behind a VPN
+	// that is off does. It is what separates a sweep that spends one budget
+	// serially from one that gives every cluster its own.
+	slow time.Duration
 }
 
 // serviceWithContexts builds a Service over several kubeconfig contexts, each
@@ -103,6 +112,9 @@ func serviceWithContexts(t *testing.T, byContext map[string]fakeCluster) *Servic
 	connector := clusters.KubeConnector{
 		NewClient: func(kctx kubeconfig.Context, _ kubeconfig.Options) (kubernetes.Interface, error) {
 			fc := byContext[kctx.Name]
+			if fc.slow > 0 {
+				time.Sleep(fc.slow)
+			}
 			if fc.unreachable {
 				return nil, fmt.Errorf("dial %s: connection refused", kctx.Name)
 			}
@@ -136,6 +148,33 @@ func fakeClientFor(apps []fakeApp, refusedKinds []string) *fake.Clientset {
 					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": a.name}},
 					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: a.image}}},
 				},
+			},
+		})
+	}
+	for _, a := range apps {
+		if a.imageID == "" {
+			continue
+		}
+		// The pod is owned by its Deployment, so the grouping engine walks up
+		// to the same app rather than inventing a second one, and its container
+		// status carries the digest the node actually pulled.
+		yes := true
+		objs = append(objs, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: a.name + "-abc123", Namespace: a.ns, UID: types.UID(a.ns + "/" + a.name + "/pod"),
+				Labels: map[string]string{"app": a.name},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind: "Deployment", Name: a.name,
+					UID: types.UID(a.ns + "/" + a.name), Controller: &yes,
+				}},
+			},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: a.image}}},
+			Status: corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "app", Image: a.image, ImageID: a.imageID, Ready: true,
+				}},
 			},
 		})
 	}
