@@ -989,25 +989,36 @@ func (s *Service) Close() { s.forwards.StopAll() }
 // "is the fix in prod yet" without reading prod. An environment that will not
 // connect becomes a column of unreadable cells naming the reason, never an
 // empty column that reads as "nothing is deployed there".
+//
+// Every context bound to an environment is read, not the first. A team running
+// prod in three regions has three answers, and reporting one of them as the
+// environment's version is the defect this view exists to prevent.
 func (s *Service) Promotion() PromotionView {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
-	var envs []promotion.Env
+	type accum struct {
+		risk       string
+		contexts   []string
+		unreadable []string
+	}
+	byEnv := map[string]*accum{}
+	var order []string
+
 	var instances []promotion.Instance
 	var unreachable []string
-	seen := map[string]bool{}
 
 	for _, name := range s.mgr.ConnectOrder() {
 		kctx := s.cfg.MustGet(name)
 		env := s.conf.Environment(kctx)
-		// Two contexts bound to one environment would produce two identical
-		// columns; the first one wins, which is what the binding is for.
-		if seen[env.Name] {
-			continue
+
+		acc, ok := byEnv[env.Name]
+		if !ok {
+			acc = &accum{risk: env.Risk.String()}
+			byEnv[env.Name] = acc
+			order = append(order, env.Name)
 		}
-		seen[env.Name] = true
-		envs = append(envs, promotion.Env{Name: env.Name, Risk: env.Risk.String(), Context: name})
+		acc.contexts = append(acc.contexts, name)
 
 		reason := ""
 		if err := s.mgr.Connect(ctx, name); err != nil {
@@ -1015,9 +1026,10 @@ func (s *Service) Promotion() PromotionView {
 		}
 		client, ok := s.mgr.ClientFor(name)
 		if !ok {
+			acc.unreadable = append(acc.unreadable, name)
 			unreachable = append(unreachable, env.Name)
 			instances = append(instances, promotion.Instance{
-				Env: env.Name, App: "", Denied: true,
+				Env: env.Name, Context: name, App: "", Denied: true,
 				DeniedReason: orElseString(reason, "not connected"),
 			})
 			continue
@@ -1025,16 +1037,28 @@ func (s *Service) Promotion() PromotionView {
 
 		snap, err := clusters.Fetch(ctx, client, kctx, clusters.FetchOptions{Tier: s.mgr.Tier(name)})
 		if err != nil {
+			acc.unreadable = append(acc.unreadable, name)
 			unreachable = append(unreachable, env.Name)
 			continue
 		}
 		for _, a := range snap.Apps {
-			instances = append(instances, instanceOf(env.Name, a))
+			in := instanceOf(env.Name, a)
+			in.Context = name
+			instances = append(instances, in)
 		}
 	}
 
-	// Instances with no app name are placeholders for an environment nobody
-	// could read; they gave us the column and nothing else.
+	envs := make([]promotion.Env, 0, len(order))
+	for _, name := range order {
+		acc := byEnv[name]
+		envs = append(envs, promotion.Env{
+			Name: name, Risk: acc.risk,
+			Context: acc.contexts[0], Contexts: acc.contexts, Unreadable: acc.unreadable,
+		})
+	}
+
+	// Instances with no app name are placeholders for a cluster nobody could
+	// read; they marked the environment unreadable and nothing else.
 	real := instances[:0]
 	for _, in := range instances {
 		if in.App != "" {
@@ -1043,7 +1067,25 @@ func (s *Service) Promotion() PromotionView {
 	}
 
 	rows := promotion.Build(envs, real)
-	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows), Unreachable: unreachable}
+	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows), Unreachable: dedupeStrings(unreachable)}
+}
+
+// dedupeStrings keeps the first occurrence of each value. An environment with
+// three unreachable clusters is one unreachable environment in the banner.
+func dedupeStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 // instanceOf reads one app's version from the snapshot.
