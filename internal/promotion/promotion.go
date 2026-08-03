@@ -207,6 +207,14 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 	if clusters == 0 {
 		clusters = 1
 	}
+	// Unreadable can outgrow the declared Contexts in a synthetically built
+	// Env (Env.Contexts unset but Unreadable populated); service.go never
+	// produces that shape today, since acc.contexts is always a superset of
+	// acc.unreadable, but resolve() must not print a cluster count smaller
+	// than the number of contexts it names as unread.
+	if unread := len(env.Unreadable); unread > clusters {
+		clusters = unread
+	}
 
 	var present []Instance
 	denied := 0
@@ -251,7 +259,7 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 		// fact this cell must not erase.
 		if len(env.Unreadable) > 0 {
 			unread := len(env.Unreadable)
-			if unread >= len(env.Contexts) {
+			if unread >= clusters {
 				note := fmt.Sprintf("%d of %d clusters did not answer", unread, clusters)
 				return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: note, Clusters: clusters}, false
 			}
@@ -259,9 +267,10 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 			// app. That is not "not deployed here": the clusters that stayed
 			// silent might. Name what was read and what was not, same as the
 			// fully-unread case, rather than inventing a disagreement no
-			// instance actually showed.
+			// instance actually showed. Terse, like every other split() note:
+			// this renders inside a matrix cell.
 			readable := clusters - unread
-			note := fmt.Sprintf("not found in the %d of %d clusters read; %d did not answer and may have it", readable, clusters, unread)
+			note := fmt.Sprintf("not in the %d clusters read; %d did not answer", readable, unread)
 			return Instance{}, Cell{Env: env.Name, Namespace: ns, State: StateDenied, Note: note, Clusters: clusters}, false
 		}
 

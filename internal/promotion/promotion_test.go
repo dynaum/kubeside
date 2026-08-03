@@ -668,14 +668,58 @@ func TestPartiallyUnreadableEnvironmentIsNotAbsentEither(t *testing.T) {
 	if c.State == StateAbsent {
 		t.Fatalf("state = %q, want anything but absent: prod-c never answered and might have it", c.State)
 	}
+	// Round-1 review finding: this test asserted only "not absent," so a
+	// future refactor routing this case through StateSplit (a genuine
+	// disagreement) instead of StateDenied (an unknown) would flip
+	// Row.Drift, Summary.Split, and the matrix sort order, and this test
+	// would stay green. Pin the exact state.
+	if c.State != StateDenied {
+		t.Fatalf("state = %q, want denied: the silent cluster is an unknown, not a disagreement observed among present instances", c.State)
+	}
 	if c.Note == "" {
 		t.Fatal("a cell that cannot claim absence should say what was read and what was not")
 	}
 	if !strings.Contains(c.Note, "2") || !strings.Contains(c.Note, "1") {
 		t.Errorf("note = %q, want it to name both the clusters read (2) and the cluster that did not answer (1)", c.Note)
 	}
+	// Round-1 review finding 3: the original note ("not found in the 2 of 3
+	// clusters read; 1 did not answer and may have it") was the longest
+	// string in the file and renders inside a matrix cell. Every other split()
+	// note is terse; this one must carry the same two facts without the
+	// padding.
+	if c.Note != "not in the 2 clusters read; 1 did not answer" {
+		t.Errorf("note = %q, want a terse note carrying the same two facts (clusters read, clusters unread)", c.Note)
+	}
 	if ok {
 		t.Error("ok = true; a partially unreadable environment must never become the upstream for the next column")
+	}
+}
+
+// Round-1 review finding 1: the drift behavior the commit and spec both rest
+// on (routing the unread case through StateDenied avoids wrongly inflating
+// drift) was never asserted. An app present in one environment, with the
+// other environment partially unreadable and nothing present there, must not
+// count as drift, and must not be counted as a split row either: the silent
+// cluster is a fact nobody observed, not a disagreement.
+func TestPartiallyUnreadableEnvironmentDoesNotInflateDriftOrSplit(t *testing.T) {
+	envs := []Env{
+		{Name: "qa", Contexts: []string{"qa-a"}},
+		{Name: "prod", Contexts: []string{"p-a", "p-b", "p-c"}, Unreadable: []string{"p-c"}},
+	}
+	rows := Build(envs, []Instance{
+		{Env: "qa", Context: "qa-a", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+	})
+	r := at(t, rows, "checkout")
+	prod := cell(r, "prod")
+	if prod.State != StateDenied {
+		t.Fatalf("prod state = %q, want denied", prod.State)
+	}
+	if r.Drift != 0 {
+		t.Fatalf("drift = %d, want 0: the unread cluster is an unknown, not a disagreement, and must not float this row up the matrix", r.Drift)
+	}
+	s := Summarize(rows)
+	if s.Split != 0 {
+		t.Fatalf("split = %d, want 0: a denied cell is not a split cell and must not be counted in Summary.Split", s.Split)
 	}
 }
 
@@ -727,6 +771,34 @@ func TestNamedDeniedInstanceStillDeniedAlongsideUnreadable(t *testing.T) {
 	_, c, ok := resolve(env, group, nil)
 	if c.State != StateDenied || c.Note != "needs get deployments" {
 		t.Fatalf("cell = %+v, want the named denial reason preserved untouched", c)
+	}
+	if ok {
+		t.Error("ok = true; a denied cell must never become upstream")
+	}
+}
+
+// --- Round-1 review findings on task #75 ---
+
+// Finding 2: the fully-unread branch compared unread against len(env.Contexts)
+// but printed clusters (max(len(env.Contexts), 1)). An Env with no Contexts
+// but a populated Unreadable — the shape most direct-call tests in this file
+// use — printed a nonsensical "2 of 1 clusters did not answer". clusters must
+// account for Unreadable outgrowing the declared Contexts, and the comparison
+// and the message must use that same number.
+func TestUnreadableCountNeverExceedsPrintedClusterCount(t *testing.T) {
+	env := Env{Name: "prod", Unreadable: []string{"prod-a", "prod-b"}}
+	_, c, ok := resolve(env, nil, nil)
+	if c.State != StateDenied {
+		t.Fatalf("state = %q, want denied", c.State)
+	}
+	if strings.Contains(c.Note, "of 1") {
+		t.Errorf("note = %q; 1 is the bogus single-cluster default, not the 2 unread contexts actually named", c.Note)
+	}
+	if !strings.Contains(c.Note, "2 of 2") {
+		t.Errorf("note = %q, want \"2 of 2 clusters did not answer\": the comparison and the message must use the same cluster count", c.Note)
+	}
+	if c.Clusters != 2 {
+		t.Errorf("clusters = %d, want 2: the declared count must grow to cover the named unreadable contexts", c.Clusters)
 	}
 	if ok {
 		t.Error("ok = true; a denied cell must never become upstream")
