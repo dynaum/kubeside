@@ -1006,7 +1006,6 @@ func (s *Service) Promotion() PromotionView {
 	var order []string
 
 	var instances []promotion.Instance
-	var unreachable []string
 
 	for _, name := range s.mgr.ConnectOrder() {
 		kctx := s.cfg.MustGet(name)
@@ -1014,6 +1013,11 @@ func (s *Service) Promotion() PromotionView {
 
 		acc, ok := byEnv[env.Name]
 		if !ok {
+			// The first context seen for this environment sets its risk; every
+			// context bound to the same environment name carries the same
+			// config-derived risk today, so which one "wins" has no effect
+			// unless a config-bound name later collides with a
+			// Classify-derived one.
 			acc = &accum{risk: env.Risk.String()}
 			byEnv[env.Name] = acc
 			order = append(order, env.Name)
@@ -1027,7 +1031,6 @@ func (s *Service) Promotion() PromotionView {
 		client, ok := s.mgr.ClientFor(name)
 		if !ok {
 			acc.unreadable = append(acc.unreadable, name)
-			unreachable = append(unreachable, env.Name)
 			instances = append(instances, promotion.Instance{
 				Env: env.Name, Context: name, App: "", Denied: true,
 				DeniedReason: orElseString(reason, "not connected"),
@@ -1038,7 +1041,6 @@ func (s *Service) Promotion() PromotionView {
 		snap, err := clusters.Fetch(ctx, client, kctx, clusters.FetchOptions{Tier: s.mgr.Tier(name)})
 		if err != nil {
 			acc.unreadable = append(acc.unreadable, name)
-			unreachable = append(unreachable, env.Name)
 			continue
 		}
 		for _, a := range snap.Apps {
@@ -1048,13 +1050,21 @@ func (s *Service) Promotion() PromotionView {
 		}
 	}
 
+	// Unreachable names only the environments where every bound context
+	// failed. A split cell and Env.Unreadable already tell the story for an
+	// environment that is merely partly degraded; adding it here too would
+	// have the banner call a column unknown while it renders real data.
 	envs := make([]promotion.Env, 0, len(order))
+	var unreachable []string
 	for _, name := range order {
 		acc := byEnv[name]
 		envs = append(envs, promotion.Env{
 			Name: name, Risk: acc.risk,
 			Context: acc.contexts[0], Contexts: acc.contexts, Unreadable: acc.unreadable,
 		})
+		if len(acc.unreadable) > 0 && len(acc.unreadable) == len(acc.contexts) {
+			unreachable = append(unreachable, name)
+		}
 	}
 
 	// Instances with no app name are placeholders for a cluster nobody could

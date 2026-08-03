@@ -33,14 +33,18 @@ type fakeApp struct {
 // fakeCluster is one kubeconfig context's worth of fixture: which environment
 // it binds to, what it runs, and whether it can be reached or read at all.
 type fakeCluster struct {
-	env         string
-	apps        []fakeApp
+	env  string
+	apps []fakeApp
 	// unreachable fails the connection itself, the way an expired token or an
 	// off-VPN cluster does.
 	unreachable bool
-	// denied connects, but as someone the cluster refuses to answer, the way a
-	// revoked RBAC binding does. Distinct from unreachable so a future test can
-	// tell "could not dial it" from "dialed it and was refused" apart.
+	// denied also fails at NewClient today, with a different error string
+	// only; clusters.Fetch has no path that returns a hard error, so this
+	// flag takes the identical branch as unreachable in Service.Promotion()
+	// and the distinction is cosmetic. A genuine "connected, then refused"
+	// fixture needs a clientset whose list calls return
+	// apierrors.NewForbidden, which lands in Snapshot.Partial rather than an
+	// error — that fixture belongs to whichever task first needs it.
 	denied bool
 }
 
@@ -172,6 +176,54 @@ func TestPromotionMarksAnUnreachableContextOnItsEnvironment(t *testing.T) {
 	}
 	if v.Rows[0].Cells[0].State != promotion.StateSplit {
 		t.Error("a cluster nobody could read is not an agreement")
+	}
+}
+
+// A partially-unreachable environment (one context down, one reads fine) must
+// not appear in PromotionView.Unreachable: the split cell and Env.Unreadable
+// already say a cluster there could not be read, and the banner claiming the
+// whole column is unknown while it renders real split data would contradict
+// what is on screen. A fully-unreachable environment, where every bound
+// context failed, still belongs in the banner.
+func TestPromotionUnreachableOnlyForFullyUnreadableEnvironments(t *testing.T) {
+	s := serviceWithContexts(t, map[string]fakeCluster{
+		"prod-us-east": {env: "prod", apps: []fakeApp{{name: "checkout", ns: "shop", image: "reg/checkout:v2.13.1"}}},
+		"prod-eu-west": {env: "prod", unreachable: true},
+		"stg-a":        {env: "stg", unreachable: true},
+		"stg-b":        {env: "stg", denied: true},
+	})
+
+	v := s.Promotion()
+
+	for _, name := range v.Unreachable {
+		if name == "prod" {
+			t.Errorf("Unreachable = %v, must not include prod: one of its two contexts reads fine", v.Unreachable)
+		}
+	}
+	found := false
+	for _, name := range v.Unreachable {
+		if name == "stg" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Unreachable = %v, want stg: every context bound to it failed", v.Unreachable)
+	}
+}
+
+// dedupeStrings is what keeps an environment with several unreachable
+// contexts down to one banner entry. Exercise it directly, since nothing
+// about the code path it serves proves the collapsing behavior on its own.
+func TestDedupeStrings(t *testing.T) {
+	got := dedupeStrings([]string{"prod", "stg", "prod", "prod", "qa"})
+	want := []string{"prod", "stg", "qa"}
+	if len(got) != len(want) {
+		t.Fatalf("dedupeStrings = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("dedupeStrings = %v, want %v", got, want)
+		}
 	}
 }
 
