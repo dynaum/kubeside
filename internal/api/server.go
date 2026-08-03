@@ -33,6 +33,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/dynaum/kubeside/internal/exec"
+	"github.com/dynaum/kubeside/internal/fleet"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/logs"
 )
@@ -94,6 +95,9 @@ type API interface {
 	StopForward(id string) error
 	// Promotion compares every app across every environment.
 	Promotion() PromotionView
+	// Fleet is one app across every cluster, for the question the matrix
+	// cannot phrase: are all of them on the newest version.
+	Fleet(app, namespace string) fleet.View
 	// Capabilities resolves what this reader may do in one namespace, so every
 	// control renders disabled-with-a-reason rather than hidden.
 	Capabilities(contextName, namespace string) CapabilitiesView
@@ -140,6 +144,7 @@ func New(a API, ui http.Handler, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/api/diff", s.handleDiff)
 	mux.HandleFunc("/api/forwards", s.handleForwards)
 	mux.HandleFunc("/api/promotion", s.handlePromotion)
+	mux.HandleFunc("/api/fleet", s.handleFleet)
 	mux.HandleFunc("/api/can", s.handleCapabilities)
 	mux.HandleFunc("/api/gate", s.handleGate)
 	mux.HandleFunc("/api/exec", s.handleExec)
@@ -563,6 +568,21 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 // handlePromotion answers "is the fix in prod yet".
 func (s *Server) handlePromotion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.api.Promotion())
+}
+
+// handleFleet answers "is every cluster running the latest version". The app
+// is required because the view is about one app by construction: an app-less
+// request would have nothing to compare across clusters, and an empty screen
+// would read as "this app runs nowhere" rather than as an unaddressed
+// question. Namespace is optional; Service.Fleet accepts "" and matches
+// against whichever namespace each cluster actually holds the app in.
+func (s *Server) handleFleet(w http.ResponseWriter, r *http.Request) {
+	app := r.URL.Query().Get("app")
+	if app == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "app is required"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.api.Fleet(app, r.URL.Query().Get("namespace")))
 }
 
 func (s *Server) handleForwards(w http.ResponseWriter, r *http.Request) {

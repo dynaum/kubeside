@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dynaum/kubeside/internal/exec"
+	"github.com/dynaum/kubeside/internal/fleet"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
@@ -90,6 +91,13 @@ func (s stubAPI) Promotion() PromotionView {
 		{Env: "prod", App: "checkout", Namespace: "team-a", Present: true, Tag: "v1"},
 	})
 	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows)}
+}
+
+func (s stubAPI) Fleet(app, namespace string) fleet.View {
+	return fleet.View{App: app, Namespace: namespace, Clusters: 2, Present: 2, Newest: "v2", Rows: []fleet.Row{
+		{Placement: fleet.Placement{Context: "qa", State: fleet.StatePresent, Tag: "v2"}},
+		{Placement: fleet.Placement{Context: "prod", State: fleet.StatePresent, Tag: "v2"}},
+	}}
 }
 
 func (s stubAPI) StartForward(req ForwardRequest) (forward.Forward, error) {
@@ -1037,5 +1045,61 @@ func TestAWrongCookieIsRefused(t *testing.T) {
 	})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("code = %d, want 401", rec.Code)
+	}
+}
+
+// TestFleetEndpointRequiresAnApp proves a request naming no app is a 400, not
+// an empty screen: the view is about one app by construction, and an empty
+// fleet screen would read as "this app runs nowhere", the exact conflation
+// this feature exists to prevent.
+func TestFleetEndpointRequiresAnApp(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/api/fleet?"+tokenParam+"="+s.Token(), nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400: the screen is about one app and needs its name", rec.Code)
+	}
+}
+
+func TestFleetEndpointReturnsTheView(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/api/fleet?app=checkout&namespace=shop&"+tokenParam+"="+s.Token(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var v fleet.View
+	if err := json.NewDecoder(rec.Body).Decode(&v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if v.App != "checkout" {
+		t.Errorf("app = %q, want checkout", v.App)
+	}
+	if v.Namespace != "shop" {
+		t.Errorf("namespace = %q, want shop", v.Namespace)
+	}
+}
+
+// TestFleetEndpointNamespaceIsOptional proves the endpoint does not reject an
+// absent namespace: Service.Fleet accepts "" and answers across whichever
+// namespace each cluster holds the app in, so the transport must not add a
+// requirement the service itself does not have.
+func TestFleetEndpointNamespaceIsOptional(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "GET", "/api/fleet?app=checkout&"+tokenParam+"="+s.Token(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var v fleet.View
+	if err := json.NewDecoder(rec.Body).Decode(&v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if v.Namespace != "" {
+		t.Errorf("namespace = %q, want empty when not asked for", v.Namespace)
+	}
+}
+
+func TestFleetEndpointNeedsTheToken(t *testing.T) {
+	s := newTestServer(t)
+	if got := do(t, s, "GET", "/api/fleet?app=checkout", nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
 	}
 }
