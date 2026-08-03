@@ -221,10 +221,15 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 
 	// Namespace, when the instance is known: an absent or denied cell still
 	// names where it would have lived, because the app identity that got us
-	// here came from a real instance somewhere in this group.
+	// here came from a real instance somewhere in this group. Take the first
+	// non-empty one, since a denied instance can carry an unknown (empty)
+	// namespace even when a later instance in the same group knows it.
 	ns := ""
-	if len(group) > 0 {
-		ns = group[0].Namespace
+	for _, in := range group {
+		if in.Namespace != "" {
+			ns = in.Namespace
+			break
+		}
 	}
 
 	if len(present) == 0 {
@@ -247,9 +252,15 @@ func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, boo
 	// single environment, not genuinely distinct clusters. A coverage
 	// fraction built from that count would be a number known to be wrong, so
 	// decide on consensus alone and never cite the cluster count.
+	//
+	// But an unreadable context still wins over all of that: the clusters
+	// nobody read might disagree, so this can never collapse to agreement
+	// just because the ones that did answer agree with each other.
 	if len(present) > clusters {
-		if rep, agreed := consensus(present); agreed {
-			return rep, compare(rep, upstream), true
+		if len(env.Unreadable) == 0 {
+			if rep, agreed := consensus(present); agreed {
+				return rep, compare(rep, upstream), true
+			}
 		}
 		return Instance{}, splitOnConsensusOnly(env, present), false
 	}
@@ -321,9 +332,12 @@ func split(env Env, present []Instance, clusters, readable int) Cell {
 	case len(tags) == 1 && len(digests) > 1:
 		// A mutable tag outranks partial coverage. One tag resolving to two
 		// digests is a defect; a cluster not having the app yet is a
-		// schedule, and the defect is the worse fact to hide.
+		// schedule, and the defect is the worse fact to hide. Cite the
+		// clusters that actually reported the tag, not the declared total —
+		// this branch is reachable under partial coverage too, where fewer
+		// clusters answered than the environment declares.
 		c.Tag = ""
-		c.Note = fmt.Sprintf("one tag across %d clusters but %d digests: the tag is mutable and these are not the same code", clusters, len(digests))
+		c.Note = fmt.Sprintf("one tag across %d clusters but %d digests: the tag is mutable and these are not the same code", len(present), len(digests))
 	case len(present) < readable:
 		c.Note = fmt.Sprintf("deployed in %d of %d clusters", len(present), clusters)
 	default:

@@ -572,3 +572,61 @@ func TestAbsentCellKeepsNamespaceWhenTheInstanceIsKnown(t *testing.T) {
 		t.Errorf("namespace = %q, want team-a: the instance is known even though it is not present", c.Namespace)
 	}
 }
+
+// --- Regression tests added while fixing round-2 review findings ---
+
+// Finding A: round 1's "more present instances than declared clusters"
+// branch checked len(present) > clusters and decided on consensus alone,
+// but returned before env.Unreadable was consulted. An environment with an
+// unreadable context must never collapse to agreement, no matter how many
+// instances are present, because the clusters nobody read might disagree.
+// It must also never become upstream for the next column.
+func TestUnreadableBlocksCollapseEvenWhenInstancesOutnumberClusters(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a"}, Unreadable: []string{"prod-a"}}
+	group := []Instance{
+		{Env: "prod", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "prod", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+	}
+	_, c, ok := resolve(env, group, nil)
+	if ok {
+		t.Fatal("ok = true; an environment with an unreadable context must never become upstream, even when the present instances agree and outnumber the declared clusters")
+	}
+	if c.State != StateSplit {
+		t.Fatalf("state = %q, want split: unreadable must block collapse even when instances outnumber declared clusters", c.State)
+	}
+}
+
+// Finding B: the digest-mismatch note in split() cited the declared cluster
+// count, not the number of clusters that actually reported the tag. Round 1
+// made this branch reachable under partial coverage, where those two numbers
+// differ, and the note ends up describing a set of clusters that isn't the
+// one it's talking about.
+func TestDigestMismatchNoteCitesReportedClustersNotDeclared(t *testing.T) {
+	env := Env{Name: "prod", Contexts: []string{"prod-a", "prod-b", "prod-c"}}
+	group := []Instance{
+		{Env: "prod", Context: "prod-a", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:aa"},
+		{Env: "prod", Context: "prod-b", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:bb"},
+	}
+	_, c, _ := resolve(env, group, nil)
+	if !strings.Contains(c.Note, "across 2 clusters") {
+		t.Errorf("note = %q, want it to cite the 2 clusters that actually reported the tag", c.Note)
+	}
+	if strings.Contains(c.Note, "across 3 clusters") {
+		t.Errorf("note = %q; 3 is the declared total, not the count that reported the tag", c.Note)
+	}
+}
+
+// Finding C: resolve() took group[0].Namespace unconditionally, so a denied
+// instance with an unknown (empty) namespace ahead of a later instance that
+// does know its namespace still dropped the namespace from the cell.
+func TestNamespaceIsFirstNonEmptyInTheGroup(t *testing.T) {
+	env := Env{Name: "prod"}
+	group := []Instance{
+		{Env: "prod", App: "notifications", Namespace: "", Denied: true, DeniedReason: "needs get deployments"},
+		{Env: "prod", App: "notifications", Namespace: "team-a", Denied: true, DeniedReason: "still denied"},
+	}
+	_, c, _ := resolve(env, group, nil)
+	if c.Namespace != "team-a" {
+		t.Errorf("namespace = %q, want team-a: the first non-empty namespace in the group, not always group[0]", c.Namespace)
+	}
+}
