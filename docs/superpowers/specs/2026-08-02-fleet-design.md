@@ -33,6 +33,23 @@ arrived last, and discards the other silently.
 `promotion.Env` carries a single `Context string`. `promotion.Instance` carries
 no context at all. The aggregation was specified and never built.
 
+The overwrite is the second place the data dies. The first is
+`internal/api/service.go:1006`:
+
+```go
+// Two contexts bound to one environment would produce two identical
+// columns; the first one wins, which is what the binding is for.
+if seen[env.Name] {
+	continue
+}
+```
+
+A second context in an environment is skipped before it is connected or
+fetched. Its assumption, that two contexts in one environment are identical, is
+exactly what a team running prod in three regions disproves. Both layers get
+fixed, and the service layer comes first, since the matrix cannot render data
+nobody gathered.
+
 So the promotion view answers "is the fix in prod" with a confident version it
 did not verify. Compare that against the rule at
 `docs/04-multi-cluster.md:216`, where unauthorized renders distinctly from
@@ -70,7 +87,7 @@ New package `internal/fleet`. One type carries one app in one cluster.
 // Placement is one app as it exists in one cluster.
 type Placement struct {
 	Context   string // kubeconfig context name, personal and unstable
-	ClusterID string // cluster UID, the identity surviving a rename
+	ClusterID string // API server URL, from kubeconfig.Context.Server
 	Env       string // resolved environment name, "unclassified" when unmatched
 	Namespace string
 
@@ -103,7 +120,7 @@ Cross-cluster app matching reuses the existing rules: name plus namespace,
 tolerating environment-suffix conventions, with `apps.match` in the config file
 overriding. No new matching mechanism.
 
-## Screen
+## Screen 7: fleet
 
 One app, one row per cluster, environment demoted to a column.
 
@@ -148,6 +165,14 @@ Two contexts pointing at one cluster merge on `ClusterID` before rendering, per
 the failure mode at `docs/04-multi-cluster.md:331`. Without the merge one
 cluster appears twice and inflates the behind count, which turns the feature's
 headline number into a lie.
+
+That line names two signals, API server URL and cluster UID. Only the first
+ships here. `kubeconfig.Context.Server` already holds the URL and costs nothing
+to read. No cluster UID exists anywhere in the codebase, and obtaining one means
+reading the `kube-system` namespace UID, which needs a permission kubeside does
+not currently request and which a namespace-scoped developer would be refused.
+The URL alone covers the case the failure mode describes, two kubeconfig entries
+aimed at one server. `docs/04-multi-cluster.md:331` gets corrected to say so.
 
 ## The promotion matrix fix
 
@@ -249,10 +274,10 @@ Under a new `feature:fleet` label, dependencies before dependents.
 | 1 | Author `screens/fleet.html` in the design project, human-reviewed | design |
 | 2 | Export `CompareTags` and identity matching from `promotion` | `internal/promotion` |
 | 3 | `internal/fleet`: placement model and derivation | `internal/fleet` |
-| 4 | Fleet query across contexts, lazy connect, `ClusterID` dedupe | `internal/fleet`, `internal/clusters` |
-| 5 | Promotion matrix stops collapsing a disagreement | `internal/promotion`, web |
+| 4 | Fleet query across contexts, lazy connect, `ClusterID` dedupe | `internal/fleet`, `internal/api` |
+| 5 | Promotion matrix stops collapsing a disagreement | `internal/promotion`, `internal/api`, web |
 | 6 | Fleet deltas over the existing websocket | `internal/api` |
-| 7 | Screen 5: fleet, ported from issue 1 | web |
+| 7 | Screen 7: fleet, ported from issue 1 | web |
 | 8 | Palette entry and app-detail entry point | web |
 | 9 | Degraded-mode and Playwright coverage | tests |
 | 10 | Docs: spec, multi-cluster, and a guide page | docs |
@@ -278,10 +303,15 @@ a `docs/guide/12-troubleshooting.md` entry, since the question will recur.
 
 ## Doc changes this forces
 
-- `docs/03-product-spec.md` commits to four screens. Fleet makes five.
+- `docs/03-product-spec.md` commits to four screens. The code already carries
+  seven numbered views: apps, app detail, config, diff as 3b, logs, promotion,
+  and the palette. Fleet becomes Screen 7 and the spec's count gets reconciled
+  with what shipped.
 - `docs/04-multi-cluster.md:20` and `:334` promise aggregation with per-context
   expansion inside the promotion view. That promise is replaced by the split
   cell plus the fleet screen, and both lines get rewritten.
+- `docs/04-multi-cluster.md:331` claims dedupe by API server URL and cluster
+  UID. Only the URL ships. The line gets corrected rather than left aspirational.
 - `README.md:5` carries the tagline a commenter read as a shipped promise. It
   stays once the feature ships.
 
