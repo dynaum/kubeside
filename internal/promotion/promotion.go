@@ -29,18 +29,30 @@ const (
 	StateDigestDiffers = "digest-differs"
 	StateAbsent        = "absent"
 	StateDenied        = "denied"
+	// StateSplit is an environment whose clusters do not agree. It never
+	// carries a version, because picking one would be the guess this state
+	// exists to prevent.
+	StateSplit = "split"
 )
 
 // Env is one column.
 type Env struct {
-	Name    string `json:"name"`
-	Risk    string `json:"risk"`
-	Context string `json:"context,omitempty"`
+	Name string `json:"name"`
+	Risk string `json:"risk"`
+	// Context is the first context bound to this environment, kept so a cell
+	// can still be opened. Contexts is all of them.
+	Context  string   `json:"context,omitempty"`
+	Contexts []string `json:"contexts,omitempty"`
+	// Unreadable names the contexts that did not answer. A cell in an
+	// environment with any unreadable context can never claim agreement,
+	// because the clusters nobody read might disagree.
+	Unreadable []string `json:"unreadable,omitempty"`
 }
 
 // Instance is one app as it exists in one environment.
 type Instance struct {
 	Env       string
+	Context   string
 	App       string
 	Namespace string
 
@@ -77,6 +89,9 @@ type Cell struct {
 	// Severe marks the states that deserve the error hue rather than a warning:
 	// ahead of upstream, and a tag that resolves to a different digest.
 	Severe bool `json:"severe,omitempty"`
+	// Clusters is how many contexts back this cell. Zero and one both mean a
+	// single cluster; the UI shows the count only above one.
+	Clusters int `json:"clusters,omitempty"`
 }
 
 // Row is one app across every environment.
@@ -93,6 +108,7 @@ type Summary struct {
 	Apps    int `json:"apps"`
 	Drifted int `json:"drifted"`
 	Ahead   int `json:"ahead"`
+	Split   int `json:"split"`
 }
 
 // Summarize counts the rows worth looking at.
@@ -104,6 +120,12 @@ func Summarize(rows []Row) Summary {
 		}
 		if r.Ahead {
 			s.Ahead++
+		}
+		for _, c := range r.Cells {
+			if c.State == StateSplit {
+				s.Split++
+				break
+			}
 		}
 	}
 	return s
@@ -141,50 +163,142 @@ func Build(envs []Env, instances []Instance) []Row {
 }
 
 func row(envs []Env, instances []Instance) Row {
-	byEnv := map[string]Instance{}
+	byEnv := map[string][]Instance{}
 	for _, in := range instances {
-		byEnv[in.Env] = in
+		byEnv[in.Env] = append(byEnv[in.Env], in)
 	}
 
 	out := Row{App: instances[0].App, Namespace: instances[0].Namespace}
 
 	// upstream is the last environment that actually told us something. An
-	// unreadable environment is not an agreement, so it does not become the
-	// thing the next column is compared against.
+	// unreadable environment is not an agreement, and neither is a split one,
+	// so neither becomes the thing the next column is compared against.
 	var upstream *Instance
 
 	for _, env := range envs {
-		in, ok := byEnv[env.Name]
-		if !ok {
-			out.Cells = append(out.Cells, Cell{Env: env.Name, State: StateAbsent, Note: "not deployed here"})
-			continue
-		}
-		if in.Denied {
-			out.Cells = append(out.Cells, Cell{
-				Env: env.Name, Namespace: in.Namespace, State: StateDenied,
-				Note: orElse(in.DeniedReason, "not readable"),
-			})
-			continue
-		}
-		if !in.Present {
-			out.Cells = append(out.Cells, Cell{
-				Env: env.Name, Namespace: in.Namespace, State: StateAbsent, Note: "not deployed here",
-			})
-			continue
-		}
-
-		c := compare(in, upstream)
-		out.Cells = append(out.Cells, c)
-		if c.State != StateSame {
+		rep, cell, ok := resolve(env, byEnv[env.Name], upstream)
+		out.Cells = append(out.Cells, cell)
+		if cell.State != StateSame {
 			out.Drift++
 		}
-		if c.State == StateAhead {
+		if cell.State == StateAhead {
 			out.Ahead = true
 		}
-		copyOf := in
-		upstream = &copyOf
+		if ok {
+			copyOf := rep
+			upstream = &copyOf
+		}
 	}
 	return out
+}
+
+// resolve turns one environment's clusters into one cell.
+//
+// The third return says whether the cell may serve as upstream for the next
+// column. Absent, denied, and split all say no: a column the matrix could not
+// read, or whose clusters disagree, is not a version the next column can be
+// compared against.
+func resolve(env Env, group []Instance, upstream *Instance) (Instance, Cell, bool) {
+	clusters := len(env.Contexts)
+	if clusters == 0 {
+		clusters = 1
+	}
+
+	var present []Instance
+	denied := 0
+	for _, in := range group {
+		switch {
+		case in.Denied:
+			denied++
+		case in.Present:
+			present = append(present, in)
+		}
+	}
+
+	if len(present) == 0 {
+		if denied > 0 {
+			reason := "not readable"
+			for _, in := range group {
+				if in.Denied && in.DeniedReason != "" {
+					reason = in.DeniedReason
+					break
+				}
+			}
+			return Instance{}, Cell{Env: env.Name, State: StateDenied, Note: reason, Clusters: clusters}, false
+		}
+		return Instance{}, Cell{Env: env.Name, State: StateAbsent, Note: "not deployed here", Clusters: clusters}, false
+	}
+
+	readable := clusters - len(env.Unreadable)
+	if rep, agreed := consensus(present); agreed && len(present) == readable && len(env.Unreadable) == 0 {
+		c := compare(rep, upstream)
+		c.Clusters = clusters
+		return rep, c, true
+	}
+
+	return Instance{}, split(env, present, clusters, readable), false
+}
+
+// consensus collapses clusters that agree.
+//
+// Tags must match exactly. Digests must match only when both arrived, because
+// a digest still in flight is not a disagreement. The representative carries
+// no digest unless every cluster reported the same one, so a pending fetch
+// renders as pending instead of borrowing one cluster's answer for the rest.
+func consensus(present []Instance) (Instance, bool) {
+	rep := present[0]
+	anyPending := rep.Digest == ""
+	for _, in := range present[1:] {
+		if in.Tag != rep.Tag {
+			return Instance{}, false
+		}
+		if in.Digest == "" {
+			anyPending = true
+			continue
+		}
+		if rep.Digest != "" && in.Digest != rep.Digest {
+			return Instance{}, false
+		}
+		if rep.Digest == "" {
+			rep.Digest = in.Digest
+		}
+	}
+	if anyPending {
+		rep.Digest = ""
+	}
+	rep.Context = ""
+	return rep, true
+}
+
+// split is the cell for an environment whose clusters do not agree. It names
+// the disagreement and never names a version.
+func split(env Env, present []Instance, clusters, readable int) Cell {
+	c := Cell{Env: env.Name, State: StateSplit, Severe: true, Clusters: clusters}
+	if len(present) > 0 {
+		c.Namespace = present[0].Namespace
+	}
+
+	tags := map[string]bool{}
+	digests := map[string]bool{}
+	for _, in := range present {
+		tags[in.Tag] = true
+		if in.Digest != "" {
+			digests[in.Digest] = true
+		}
+	}
+
+	switch {
+	case len(env.Unreadable) > 0:
+		c.Note = fmt.Sprintf("%d of %d clusters readable; the rest did not answer", readable, clusters)
+	case len(present) < readable:
+		c.Note = fmt.Sprintf("deployed in %d of %d clusters", len(present), clusters)
+	case len(tags) == 1 && len(digests) > 1:
+		c.Tag = ""
+		c.Note = fmt.Sprintf("one tag across %d clusters but %d digests: the tag is mutable and these are not the same code", clusters, len(digests))
+	default:
+		c.Note = fmt.Sprintf("%d versions across %d clusters", len(tags), clusters)
+	}
+	return c
 }
 
 func compare(in Instance, upstream *Instance) Cell {

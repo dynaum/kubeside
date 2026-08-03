@@ -1,6 +1,9 @@
 package promotion
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func envs() []Env {
 	return []Env{{Name: "qa", Risk: "low"}, {Name: "stg", Risk: "medium"}, {Name: "prod", Risk: "high"}}
@@ -256,5 +259,167 @@ func TestCompareTagsIsExported(t *testing.T) {
 func TestStripEnvTokenIsExported(t *testing.T) {
 	if got := StripEnvToken("team-a-prod"); got != "team-a" {
 		t.Errorf("StripEnvToken = %q, want team-a", got)
+	}
+}
+
+func multiEnv() []Env {
+	return []Env{
+		{Name: "qa", Contexts: []string{"qa-cluster"}},
+		{Name: "prod", Contexts: []string{"prod-us-east", "prod-eu-west", "prod-ap-south"}},
+	}
+}
+
+func prodInstance(ctx, tag, digest string) Instance {
+	return Instance{
+		Env: "prod", Context: ctx, App: "checkout", Namespace: "shop",
+		Present: true, Image: "reg/checkout:" + tag, Tag: tag, Digest: digest,
+		Health: "healthy", Ready: "3/3",
+	}
+}
+
+func cellFor(t *testing.T, rows []Row, env string) Cell {
+	t.Helper()
+	for _, c := range rows[0].Cells {
+		if c.Env == env {
+			return c
+		}
+	}
+	t.Fatalf("no cell for env %q", env)
+	return Cell{}
+}
+
+func TestAgreeingContextsCollapseToOneVersion(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		{Env: "qa", Context: "qa-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.14.0", Digest: "sha256:aa"},
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateBehind {
+		t.Errorf("state = %q, want %q: three clusters agreeing is one version", c.State, StateBehind)
+	}
+	if c.Tag != "v2.13.1" {
+		t.Errorf("tag = %q, want v2.13.1", c.Tag)
+	}
+}
+
+func TestDisagreeingContextsNeverCollapse(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.12.0", "sha256:cc"),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit {
+		t.Fatalf("state = %q, want %q", c.State, StateSplit)
+	}
+	if c.Tag != "" {
+		t.Errorf("tag = %q; a split cell must not pick a winner", c.Tag)
+	}
+	if !c.Severe {
+		t.Error("a split prod is severe")
+	}
+	if c.Clusters != 3 {
+		t.Errorf("clusters = %d, want 3", c.Clusters)
+	}
+	if !strings.Contains(c.Note, "2 versions") {
+		t.Errorf("note = %q, want it to name the version count", c.Note)
+	}
+}
+
+func TestSameTagDifferentDigestSplitsLoudly(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", "sha256:cc"),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit || !c.Severe {
+		t.Fatalf("state = %q severe = %v, want a severe split", c.State, c.Severe)
+	}
+	if !strings.Contains(c.Note, "digest") {
+		t.Errorf("note = %q, want it to name the mutable tag", c.Note)
+	}
+}
+
+func TestPendingDigestDoesNotSplitAnAgreement(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", ""),
+		prodInstance("prod-ap-south", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State == StateSplit {
+		t.Fatal("a digest still in flight is not a disagreement")
+	}
+	if !c.DigestPending {
+		t.Error("a missing digest must read as pending, never as a match")
+	}
+	if c.Digest != "" {
+		t.Errorf("digest = %q; claiming one cluster's digest for the pair would be a guess", c.Digest)
+	}
+}
+
+func TestPartialDeploymentSplits(t *testing.T) {
+	rows := Build(multiEnv(), []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit {
+		t.Fatalf("state = %q; deployed in two of three clusters is not deployed", c.State)
+	}
+	if !strings.Contains(c.Note, "2 of 3") {
+		t.Errorf("note = %q, want it to name the coverage", c.Note)
+	}
+}
+
+func TestUnreadableContextBlocksCollapse(t *testing.T) {
+	envs := multiEnv()
+	envs[1].Unreadable = []string{"prod-ap-south"}
+	rows := Build(envs, []Instance{
+		prodInstance("prod-us-east", "v2.13.1", "sha256:bb"),
+		prodInstance("prod-eu-west", "v2.13.1", "sha256:bb"),
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSplit {
+		t.Fatalf("state = %q; a cluster nobody could read is not an agreement", c.State)
+	}
+	if !strings.Contains(c.Note, "readable") {
+		t.Errorf("note = %q, want it to say how many clusters answered", c.Note)
+	}
+}
+
+func TestSplitCellIsNotUpstreamForTheNextColumn(t *testing.T) {
+	envs := []Env{
+		{Name: "qa", Contexts: []string{"qa-cluster"}},
+		{Name: "stg", Contexts: []string{"stg-a", "stg-b"}},
+		{Name: "prod", Contexts: []string{"prod-only"}},
+	}
+	rows := Build(envs, []Instance{
+		{Env: "qa", Context: "qa-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:aa"},
+		{Env: "stg", Context: "stg-a", App: "checkout", Namespace: "shop", Present: true, Tag: "v3.0.0", Digest: "sha256:bb"},
+		{Env: "stg", Context: "stg-b", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:cc"},
+		{Env: "prod", Context: "prod-only", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:aa"},
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateSame {
+		t.Errorf("prod state = %q, want %q: prod matches qa, and the split stg never became the basis", c.State, StateSame)
+	}
+}
+
+func TestSingleContextEnvironmentIsUnchanged(t *testing.T) {
+	envs := []Env{
+		{Name: "qa", Contexts: []string{"qa-cluster"}},
+		{Name: "prod", Contexts: []string{"prod-cluster"}},
+	}
+	rows := Build(envs, []Instance{
+		{Env: "qa", Context: "qa-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v2.0.0", Digest: "sha256:aa"},
+		{Env: "prod", Context: "prod-cluster", App: "checkout", Namespace: "shop", Present: true, Tag: "v1.0.0", Digest: "sha256:bb"},
+	})
+	c := cellFor(t, rows, "prod")
+	if c.State != StateBehind {
+		t.Errorf("state = %q, want %q: one context per environment behaves exactly as before", c.State, StateBehind)
 	}
 }
