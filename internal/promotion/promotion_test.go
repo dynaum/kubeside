@@ -235,3 +235,26 @@ func TestTagIsReadFromTheImage(t *testing.T) {
 		t.Errorf("tag = %q, want none when the image is unknown", got)
 	}
 }
+
+func TestIdentityMatchesAcrossEnvSuffixedNamespaces(t *testing.T) {
+	qa := Identity("checkout", "team-a-qa")
+	prod := Identity("checkout", "team-a-prod")
+	if qa != prod {
+		t.Errorf("Identity qa = %q, prod = %q; one team's namespace in two places is one app", qa, prod)
+	}
+}
+
+func TestCompareTagsIsExported(t *testing.T) {
+	if CompareTags("v1.2.0", "v1.10.0") >= 0 {
+		t.Error("v1.2.0 should order below v1.10.0")
+	}
+	if CompareTags("sha-abc", "sha-def") != 0 {
+		t.Error("build ids cannot be ordered, and claiming a direction invents one")
+	}
+}
+
+func TestStripEnvTokenIsExported(t *testing.T) {
+	if got := StripEnvToken("team-a-prod"); got != "team-a" {
+		t.Errorf("StripEnvToken = %q, want team-a", got)
+	}
+}

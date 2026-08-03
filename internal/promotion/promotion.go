@@ -201,7 +201,7 @@ func compare(in Instance, upstream *Instance) Cell {
 	}
 
 	if in.Tag != upstream.Tag {
-		switch order := compareTags(in.Tag, upstream.Tag); {
+		switch order := CompareTags(in.Tag, upstream.Tag); {
 		case order < 0:
 			c.State = StateBehind
 			c.Note = fmt.Sprintf("behind %s, which runs %s", upstream.Env, upstream.Tag)
@@ -230,14 +230,16 @@ func compare(in Instance, upstream *Instance) Cell {
 	return c
 }
 
-// identity is how one app is recognized across environments.
+// Identity is how one app is recognized across environments.
 //
 // Name plus namespace, with an environment suffix or prefix tolerated, because
 // team-a-qa and team-a-prod are one team's namespace in two places and lining
 // those up is the whole point of the view.
-func identity(in Instance) string {
-	return in.App + "|" + stripEnvToken(in.Namespace)
+func Identity(app, namespace string) string {
+	return app + "|" + StripEnvToken(namespace)
 }
+
+func identity(in Instance) string { return Identity(in.App, in.Namespace) }
 
 var envTokens = map[string]bool{
 	"qa": true, "stg": true, "stage": true, "staging": true, "prod": true,
@@ -245,7 +247,9 @@ var envTokens = map[string]bool{
 	"preprod": true, "sandbox": true,
 }
 
-func stripEnvToken(ns string) string {
+// StripEnvToken removes the environment token from a namespace, so that
+// team-a-qa and team-a-prod resolve to one identity.
+func StripEnvToken(ns string) string {
 	parts := strings.Split(ns, "-")
 	kept := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -291,10 +295,10 @@ var versionLike = regexp.MustCompile(`^v?\d+(\.\d+)*([-+._].*)?$`)
 
 var numeric = regexp.MustCompile(`\d+`)
 
-// compareTags orders two version tags, returning zero when they cannot be
+// CompareTags orders two version tags, returning zero when they cannot be
 // ordered. Claiming a direction we cannot establish would be worse than saying
 // they merely differ.
-func compareTags(a, b string) int {
+func CompareTags(a, b string) int {
 	an, aok := versionParts(a)
 	bn, bok := versionParts(b)
 	if !aok || !bok {
