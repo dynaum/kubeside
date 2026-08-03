@@ -256,6 +256,23 @@ func TestCompareTagsIsExported(t *testing.T) {
 	}
 }
 
+func TestOrderableSeparatesEqualFromIncomparable(t *testing.T) {
+	// CompareTags returns zero for both, which is why Orderable exists.
+	if CompareTags("v1.0.0", "v1.0.0") != 0 || CompareTags("sha-abc", "sha-def") != 0 {
+		t.Fatal("CompareTags no longer returns zero for equal and for incomparable alike")
+	}
+	for _, tag := range []string{"v1.0.0", "1.0", "2.14.0-rc1", "3"} {
+		if !Orderable(tag) {
+			t.Errorf("Orderable(%q) = false, want true", tag)
+		}
+	}
+	for _, tag := range []string{"sha-abc123", "latest", "main", ""} {
+		if Orderable(tag) {
+			t.Errorf("Orderable(%q) = true, want false", tag)
+		}
+	}
+}
+
 func TestStripEnvTokenIsExported(t *testing.T) {
 	if got := StripEnvToken("team-a-prod"); got != "team-a" {
 		t.Errorf("StripEnvToken = %q, want team-a", got)

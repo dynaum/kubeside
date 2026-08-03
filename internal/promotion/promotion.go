@@ -541,6 +541,17 @@ func CompareTags(a, b string) int {
 	return 0
 }
 
+// Orderable reports whether a tag can take part in an ordering at all.
+//
+// CompareTags returns zero both for two tags that are equal and for a pair it
+// refuses to order, so zero alone cannot tell those apart. A caller picking a
+// maximum needs the difference: an unorderable tag that wins the maximum by
+// never losing would become a yardstick nothing can be measured against.
+func Orderable(tag string) bool {
+	_, ok := versionParts(tag)
+	return ok
+}
+
 func versionParts(tag string) ([]int, bool) {
 	if !versionLike.MatchString(tag) {
 		return nil, false

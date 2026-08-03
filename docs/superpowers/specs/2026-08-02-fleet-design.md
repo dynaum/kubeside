@@ -245,6 +245,14 @@ Further cases:
   state on the screen, ranked above behind. Two clusters claiming `v2.13.1`
   while running different code is worse than one cluster openly sitting on
   `v2.12.0`.
+- A cluster nobody reached sorts above a cluster whose older version you can
+  see. The promotion matrix already decides this way: neither agreement nor a
+  defect can be claimed from clusters we never saw, so the version we could not
+  read might be worse than the old one we could. Both screens rank the same
+  facts by one rule.
+- A present cluster whose image is pinned by digest has no tag to compare. It
+  reads as a version nobody could name, never as a cluster on the newest one,
+  and a tag that does not exist is never called mutable.
 - A 403 on the namespace list falls through the existing discovery chain and
   names the active mode on the row.
 - Expired SSO credentials reuse the inline prompt shipped in #37 rather than
