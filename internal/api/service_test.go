@@ -17,11 +17,14 @@ import (
 	"github.com/dynaum/kubeside/internal/timeline"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 )
 
 // fakeApp is one workload to seed into a fake cluster: a Deployment running
@@ -35,17 +38,19 @@ type fakeApp struct {
 type fakeCluster struct {
 	env  string
 	apps []fakeApp
-	// unreachable fails the connection itself, the way an expired token or an
-	// off-VPN cluster does.
+	// unreachable fails the connection itself, the way an expired token, a
+	// refused credential, or an off-VPN cluster does. clusters.Fetch has no
+	// path that returns a hard error, so every connect-time failure takes
+	// this one branch in Service.Promotion() and Service.Fleet() regardless
+	// of which of those causes produced it; the distinction between them is
+	// not one either method can observe.
 	unreachable bool
-	// denied also fails at NewClient today, with a different error string
-	// only; clusters.Fetch has no path that returns a hard error, so this
-	// flag takes the identical branch as unreachable in Service.Promotion()
-	// and the distinction is cosmetic. A genuine "connected, then refused"
-	// fixture needs a clientset whose list calls return
-	// apierrors.NewForbidden, which lands in Snapshot.Partial rather than an
-	// error — that fixture belongs to whichever task first needs it.
-	denied bool
+	// refusedKinds fails List for exactly these kinds, once connected, the
+	// way a namespace-scoped role refuses a cluster-scoped read. Unlike
+	// unreachable, clusters.Fetch has no error path for this: the refused
+	// kinds land in Snapshot.Partial and Fetch returns a nil error, which is
+	// what lets a caller tell "denied" apart from "absent".
+	refusedKinds []string
 }
 
 // serviceWithContexts builds a Service over several kubeconfig contexts, each
@@ -98,13 +103,10 @@ func serviceWithContexts(t *testing.T, byContext map[string]fakeCluster) *Servic
 	connector := clusters.KubeConnector{
 		NewClient: func(kctx kubeconfig.Context, _ kubeconfig.Options) (kubernetes.Interface, error) {
 			fc := byContext[kctx.Name]
-			switch {
-			case fc.unreachable:
+			if fc.unreachable {
 				return nil, fmt.Errorf("dial %s: connection refused", kctx.Name)
-			case fc.denied:
-				return nil, fmt.Errorf("forbidden: %s refuses this identity", kctx.Name)
 			}
-			return fakeClientFor(fc.apps), nil
+			return fakeClientFor(fc.apps, fc.refusedKinds), nil
 		},
 	}
 
@@ -117,7 +119,13 @@ func serviceWithContexts(t *testing.T, byContext map[string]fakeCluster) *Servic
 // fakeClientFor builds a fake clientset with one Deployment per app, mirroring
 // clusterWithApp: a selector matching its own pod template is enough for the
 // grouping engine to recognize it, and no pod is needed for a version compare.
-func fakeClientFor(apps []fakeApp) *fake.Clientset {
+//
+// refusedKinds makes List fail for exactly those kinds with the same
+// apierrors.NewForbidden a namespace-scoped role produces, so a caller can
+// build the "connected, but this kind is unreadable" fixture that a plain
+// unreachable context cannot: clusters.Fetch turns this into an entry in
+// Snapshot.Partial rather than an error.
+func fakeClientFor(apps []fakeApp, refusedKinds []string) *fake.Clientset {
 	objs := make([]runtime.Object, 0, len(apps))
 	for _, a := range apps {
 		objs = append(objs, &appsv1.Deployment{
@@ -131,7 +139,36 @@ func fakeClientFor(apps []fakeApp) *fake.Clientset {
 			},
 		})
 	}
-	return fake.NewSimpleClientset(objs...)
+	client := fake.NewSimpleClientset(objs...)
+	for _, kind := range refusedKinds {
+		resource := resourceOfKind(kind)
+		client.PrependReactor("list", resource, func(ktesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: resource}, "", nil)
+		})
+	}
+	return client
+}
+
+// resourceOfKind maps the kind names clusters.Fetch reports in Snapshot.Partial
+// to the plural resource name a fake clientset reactor matches on.
+func resourceOfKind(kind string) string {
+	switch kind {
+	case "Deployment":
+		return "deployments"
+	case "StatefulSet":
+		return "statefulsets"
+	case "DaemonSet":
+		return "daemonsets"
+	case "CronJob":
+		return "cronjobs"
+	case "Job":
+		return "jobs"
+	case "ReplicaSet":
+		return "replicasets"
+	case "Pod":
+		return "pods"
+	}
+	return strings.ToLower(kind) + "s"
 }
 
 // Two contexts bound to one environment, running different versions. Build
@@ -190,7 +227,7 @@ func TestPromotionUnreachableOnlyForFullyUnreadableEnvironments(t *testing.T) {
 		"prod-us-east": {env: "prod", apps: []fakeApp{{name: "checkout", ns: "shop", image: "reg/checkout:v2.13.1"}}},
 		"prod-eu-west": {env: "prod", unreachable: true},
 		"stg-a":        {env: "stg", unreachable: true},
-		"stg-b":        {env: "stg", denied: true},
+		"stg-b":        {env: "stg", unreachable: true},
 	})
 
 	v := s.Promotion()

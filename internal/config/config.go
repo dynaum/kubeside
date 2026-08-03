@@ -177,7 +177,7 @@ func (c *Config) apply(f file, path string) error {
 			c.byContext[name] = i
 		}
 		for _, u := range e.Clusters {
-			k := normalizeURL(u)
+			k := NormalizeURL(u)
 			if prev, dup := c.byCluster[k]; dup {
 				return fmt.Errorf("%s: cluster %q is bound to both %q and %q",
 					path, u, c.Environments[prev].Name, env.Name)
@@ -279,7 +279,7 @@ func writeForRisk(r environments.Risk) environments.WritePolicy {
 // classifies by name, so configuring one environment does not blind kubeside to
 // the others.
 func (c *Config) Environment(kctx kubeconfig.Context) environments.Environment {
-	if i, ok := c.byCluster[normalizeURL(kctx.Server)]; ok {
+	if i, ok := c.byCluster[NormalizeURL(kctx.Server)]; ok {
 		return c.Environments[i]
 	}
 	if i, ok := c.byContext[kctx.Name]; ok {
@@ -295,9 +295,9 @@ func (c *Config) AppRef(app, env string) (Ref, bool) {
 	return r, ok
 }
 
-// normalizeURL makes server URLs comparable across the small differences that
+// NormalizeURL makes server URLs comparable across the small differences that
 // mean nothing: a trailing slash, or a host written in a different case.
-func normalizeURL(u string) string {
+func NormalizeURL(u string) string {
 	s := strings.TrimSpace(u)
 	if s == "" {
 		return ""
