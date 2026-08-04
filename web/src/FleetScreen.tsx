@@ -3,6 +3,7 @@ import { api, type FleetRow, type FleetView } from "./api";
 import { Glyph } from "./Status";
 import { routeHash } from "./route";
 import { envToken, loudestEnv } from "./health";
+import { notPresentLabel, readySplit, verdictBadge } from "./fleet";
 
 // Screen 7. Is every cluster running the latest version.
 //
@@ -19,12 +20,6 @@ import { envToken, loudestEnv } from "./health";
 // prod-us-east and production are red while spelling no tier this screen could
 // compare against. The chip prints the resolved name verbatim, the way every
 // other screen does, and data-env carries the colour.
-
-const NOT_PRESENT_LABEL: Record<string, string> = {
-  unreachable: "no answer",
-  denied: "no access",
-  pending: "asking",
-};
 
 export function FleetScreen({ app, namespace }: { app: string; namespace: string }) {
   const [view, setView] = useState<FleetView | null>(null);
@@ -115,7 +110,7 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
                   <thead>
                     <tr>
                       <th style={{ width: 180 }}>Cluster</th>
-                      <th style={{ width: 84 }}>Env</th>
+                      <th style={{ width: 140 }}>Env</th>
                       <th style={{ width: 120 }}>Version</th>
                       <th style={{ width: 104 }}>Health</th>
                       <th>Verdict</th>
@@ -223,7 +218,7 @@ function HealthCell({ r }: { r: FleetRow }) {
   if (r.state === "absent") {
     return <span className="cell-none">—</span>;
   }
-  const label = NOT_PRESENT_LABEL[r.state] ?? r.state;
+  const label = notPresentLabel(r.state);
   if (r.state === "denied") {
     return <span className="cell-denied">{label}</span>;
   }
@@ -236,14 +231,14 @@ function HealthCell({ r }: { r: FleetRow }) {
 }
 
 function Ratio({ ready }: { ready: string }) {
-  const i = ready.indexOf("/");
-  if (i === -1) {
-    return <span className="ratio" style={{ marginLeft: 6 }}>{ready}</span>;
+  const { whole, of } = readySplit(ready);
+  if (of === null) {
+    return <span className="ratio" style={{ marginLeft: 6 }}>{whole}</span>;
   }
   return (
     <span className="ratio" style={{ marginLeft: 6 }}>
-      {ready.slice(0, i)}
-      <span className="of">{ready.slice(i)}</span>
+      {whole}
+      <span className="of">{of}</span>
     </span>
   );
 }
@@ -252,11 +247,12 @@ function Verdict({ r }: { r: FleetRow }) {
   if (r.state !== "present") {
     return <>{r.note}</>;
   }
-  const flagged = r.mutableTag || r.behind;
+  const badge = verdictBadge(r);
+  const flagged = badge !== null;
   return (
     <>
-      {r.mutableTag && <span className="drift-flag ahead">mutable tag</span>}
-      {!r.mutableTag && r.behind && <span className="drift-flag">behind</span>}
+      {badge === "mutable-tag" && <span className="drift-flag ahead">mutable tag</span>}
+      {badge === "behind" && <span className="drift-flag">behind</span>}
       {r.note && <span style={{ marginLeft: flagged ? 6 : 0 }}>{r.note}</span>}
       {r.digestPending && (
         <span className="tag tag-unknown" style={{ marginLeft: 6 }}>digest pending</span>

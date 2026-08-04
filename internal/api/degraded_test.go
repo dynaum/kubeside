@@ -9,6 +9,7 @@ import (
 
 	"github.com/dynaum/kubeside/internal/clusters"
 	"github.com/dynaum/kubeside/internal/config"
+	"github.com/dynaum/kubeside/internal/fleet"
 	"github.com/dynaum/kubeside/internal/kubeconfig"
 	"github.com/dynaum/kubeside/internal/timeline"
 	appsv1 "k8s.io/api/apps/v1"
@@ -416,6 +417,44 @@ func TestExecRefusesOnAnUnreachableCluster(t *testing.T) {
 	}, func([]byte) {})
 	if err == nil {
 		t.Fatal("a shell opened against a cluster nobody can reach")
+	}
+}
+
+// The fleet screen exists precisely because a developer's clusters are never
+// uniformly reachable: one is behind an expired VPN session, one refuses an
+// RBAC-scoped read, and the rest just answer. All three sit on one screen at
+// once, and the two kinds of silence must not look like each other.
+func TestFleetFillsWithOneClusterUnreachableAndOneDenied(t *testing.T) {
+	s := serviceWithContexts(t, map[string]fakeCluster{
+		"qa-cluster":   {env: "qa", apps: []fakeApp{{name: "checkout", ns: "shop", image: "reg/checkout:v2.14.0"}}},
+		"prod-us-east": {env: "prod", unreachable: true},
+		// refusedKinds is the genuine denial fixture: clusters.Fetch never
+		// errors on an RBAC refusal, it records the kind in Snapshot.Partial.
+		// Deployment can carry an app, unlike Pod or ReplicaSet, which the
+		// fleet sweep deliberately excludes from denial.
+		"prod-eu-west": {env: "prod", refusedKinds: []string{"Deployment"}},
+	})
+
+	v := s.Fleet("checkout", "shop")
+
+	if v.Clusters != 3 {
+		t.Fatalf("clusters = %d, want 3: every cluster asked appears", v.Clusters)
+	}
+	if v.Newest != "v2.14.0" {
+		t.Errorf("newest = %q; the reachable cluster still answers", v.Newest)
+	}
+	states := map[string]string{}
+	for _, r := range v.Rows {
+		states[r.Context] = r.State
+	}
+	if states["prod-us-east"] != fleet.StateUnreachable {
+		t.Errorf("prod-us-east state = %q, want %q", states["prod-us-east"], fleet.StateUnreachable)
+	}
+	if states["prod-eu-west"] != fleet.StateDenied {
+		t.Errorf("prod-eu-west state = %q, want %q", states["prod-eu-west"], fleet.StateDenied)
+	}
+	if states["prod-us-east"] == states["prod-eu-west"] {
+		t.Error("unreachable and denied render the same; they are different facts")
 	}
 }
 
