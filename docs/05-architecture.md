@@ -57,8 +57,17 @@ web/                  React frontend, embedded via embed.FS
 permission cache, and circuit breaker. One goroutine per connection. A dead
 cluster never blocks a request for another.
 
-`contextID` derives from cluster UID first and kubeconfig name second, so a
-context rename in kubeconfig preserves stored history.
+`contextID` is the kubeconfig context name. Two contexts aimed at one cluster
+are recognized by API server URL, normalized by `config.NormalizeURL`, which is
+what the fleet view merges on.
+
+An earlier draft said this derived from a cluster UID, and that a rename
+"preserves stored history". Both were wrong. No cluster UID is read anywhere:
+obtaining one means reading the `kube-system` namespace UID, a permission
+kubeside does not request and a namespace-scoped developer would be refused. And
+there is no stored history to preserve, which is the point of
+[04-multi-cluster.md](04-multi-cluster.md)'s decision to write nothing to disk.
+A rename costs the session's in-memory buffer, and nothing else.
 
 Watch tiers, per [04-multi-cluster.md](04-multi-cluster.md):
 
