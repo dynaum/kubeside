@@ -122,6 +122,7 @@ export function App() {
             onOpenApp={(context, namespace, workload) =>
               context && go({ screen: "app", context, namespace, workload })
             }
+            onOpenFleet={(app, namespace) => go({ screen: "fleet", app, namespace })}
           />
         )}
         {route.screen === "fleet" && (

@@ -260,7 +260,7 @@ export interface GateView {
 export interface PromotionCell {
   env: string;
   namespace?: string;
-  state: string; // same, behind, ahead, differs, digest-differs, absent, denied
+  state: string; // same, behind, ahead, differs, digest-differs, absent, denied, split
   tag?: string;
   image?: string;
   digest?: string;
@@ -270,6 +270,9 @@ export interface PromotionCell {
   revisionAt?: string;
   note?: string;
   severe?: boolean;
+  // Clusters is how many contexts back this cell. Set on split (and other)
+  // cells; the UI shows the count only above one.
+  clusters?: number;
 }
 
 export interface PromotionRow {
@@ -281,9 +284,18 @@ export interface PromotionRow {
 }
 
 export interface PromotionView {
-  envs: { name: string; risk: string; context?: string }[];
+  envs: {
+    name: string;
+    risk: string;
+    context?: string;
+    // Contexts is every context bound to this environment. Unreadable names
+    // the ones that did not answer; a column with any of those can never
+    // claim agreement, because the clusters nobody read might disagree.
+    contexts?: string[];
+    unreadable?: string[];
+  }[];
   rows: PromotionRow[];
-  summary: { apps: number; drifted: number; ahead: number };
+  summary: { apps: number; drifted: number; ahead: number; split: number };
   unreachable?: string[];
 }
 
