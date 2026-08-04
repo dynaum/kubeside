@@ -156,7 +156,7 @@ already enough of.
 ## Status
 
 Released. The app list, whole-workload logs, the reconstructed timeline,
-resolved configuration, cross-environment diff, the promotion matrix,
+resolved configuration, cross-environment diff, the promotion matrix, fleet,
 port-forward, the command palette, prod guardrails, and exec are built, tested,
 and driven against real clusters.
 
@@ -183,7 +183,8 @@ The full site is at
 [keyboard](docs/guide/09-keyboard.md) ·
 [the config file](docs/guide/10-config-file.md) ·
 [permissions](docs/guide/11-permissions.md) ·
-[when things are missing](docs/guide/12-troubleshooting.md)
+[when things are missing](docs/guide/12-troubleshooting.md) ·
+[fleet, one app across every cluster](docs/guide/13-fleet.md)
 
 **Design notes** — [the problem](docs/01-problem.md) ·
 [personas](docs/02-personas.md) ·

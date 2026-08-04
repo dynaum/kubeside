@@ -23,9 +23,16 @@ One sentence for the README, the launch post, and every scope argument:
 6. Teach kubectl, do not replace it. Every view exposes the equivalent command.
 7. Trust the numbers. A metric that could be wrong is not displayed.
 
-## The four screens
+## The screens
 
-Nothing else ships in v1.
+Seven views ship in v1. Four get a full design here, since their content
+belongs to one app in one place: the app list, app detail, resolved
+configuration, and logs. The other three live where their content forces
+them to: promotion and the cross-environment config diff need every
+environment already modeled, so [04-multi-cluster.md](04-multi-cluster.md)
+specifies them; the command palette is under Cross-cutting below.
+
+Nothing beyond these seven ships in v1.
 
 ### Screen 1: Apps
 
@@ -186,6 +193,21 @@ Every view exposes "show kubectl", printing the equivalent command.
 
 Environment switching and comparison are covered in
 [04-multi-cluster.md](04-multi-cluster.md).
+
+Screen numbering, for cross-reference: 1 the app list, 2 app detail, 3
+resolved configuration, 3b the cross-environment config diff, 4 logs, 5
+promotion, 6 this palette.
+
+### Screen 7: Fleet
+
+One app, one row per cluster, answering a question promotion cannot phrase:
+is every cluster running the latest version. Promotion compares environments
+side by side; a team running prod across two regions asks about the clusters
+inside one environment, or about clusters that sit outside the environment
+axis entirely. Fleet reuses promotion's five states, present, absent, denied,
+unreachable, pending, one row per cluster instead of one column per
+environment. Opened from a split promotion cell or the app detail screen.
+Guide: `docs/guide/13-fleet.md`.
 
 ## Explicit non-goals for v1
 
