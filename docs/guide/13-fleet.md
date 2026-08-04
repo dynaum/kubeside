@@ -9,7 +9,7 @@ clusters agree with each other, not only whether prod agrees with stg.
 
 ## Opening it
 
-Three ways in:
+Four ways in:
 
 - The command palette (`cmd+k`), from any app: "*app* across every cluster".
 - The "Fleet" button on the app detail screen.
@@ -19,10 +19,19 @@ Three ways in:
   ones.
 
 Opening this screen wakes every context in your kubeconfig, not only the one
-you were looking at. No other screen does this. The app list and app detail
-connect lazily, one context at a time, as you look at them. Fleet asks all of
-them at once, on open, because "every cluster" is the question it exists to
-answer.
+you were looking at. The app list and app detail connect lazily, one context at
+a time, as you look at them. Fleet asks all of them at once, on open, because
+"every cluster" is the question it exists to answer.
+
+Promotion also connects every context, so fleet is not alone in that. Two
+things make fleet heavier. It connects them concurrently rather than one after
+another, and it reads pod status on every cluster it reaches, which promotion
+does only for the apps you are comparing. Pod status is where the image digest
+lives, and the digest is what catches one tag running as two different builds.
+
+On a kubeconfig with forty contexts, that is forty connections at once, each
+possibly running a credential plugin. Worth knowing before you bind the palette
+command to muscle memory.
 
 ## Reading the table
 

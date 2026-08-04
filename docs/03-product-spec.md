@@ -25,14 +25,15 @@ One sentence for the README, the launch post, and every scope argument:
 
 ## The screens
 
-Seven views ship in v1. Four get a full design here, since their content
+Nine views ship in v1. Four get a full design here, since their content
 belongs to one app in one place: the app list, app detail, resolved
-configuration, and logs. The other three live where their content forces
-them to: promotion and the cross-environment config diff need every
+configuration, and logs. The rest live where their content forces them to:
+promotion, fleet, and the cross-environment config diff need every
 environment already modeled, so [04-multi-cluster.md](04-multi-cluster.md)
-specifies them; the command palette is under Cross-cutting below.
+specifies them; the command palette is under Cross-cutting below, and exec is
+specified with the actions it belongs to.
 
-Nothing beyond these seven ships in v1.
+Nothing beyond these nine ships in v1.
 
 ### Screen 1: Apps
 
@@ -196,7 +197,8 @@ Environment switching and comparison are covered in
 
 Screen numbering, for cross-reference: 1 the app list, 2 app detail, 3
 resolved configuration, 3b the cross-environment config diff, 4 logs, 5
-promotion, 6 this palette.
+promotion, 6 this palette, 7 fleet, and exec, which carries no number because
+it is an action surface rather than a view.
 
 ### Screen 7: Fleet
 
@@ -204,9 +206,18 @@ One app, one row per cluster, answering a question promotion cannot phrase:
 is every cluster running the latest version. Promotion compares environments
 side by side; a team running prod across two regions asks about the clusters
 inside one environment, or about clusters that sit outside the environment
-axis entirely. Fleet reuses promotion's five states, present, absent, denied,
-unreachable, pending, one row per cluster instead of one column per
-environment. Opened from a split promotion cell or the app detail screen.
+axis entirely. One row per cluster instead of one column per environment.
+
+Fleet declares its own five states: present, absent, denied, unreachable, and
+pending. It does not share promotion's, which are comparisons between columns
+rather than facts about one cluster. Only `absent` and `denied` are spelled the
+same in both, and they do not mean the same thing: promotion has no
+`unreachable`, so a cluster that never answered reads as denied there and as
+unreachable here. What fleet does reuse from promotion is the machinery,
+`CompareTags`, `Identity`, and `Orderable`, so one app is one app and one
+version ordering governs both screens.
+
+Opened from a split promotion cell or the app detail screen.
 Guide: `docs/guide/13-fleet.md`.
 
 ## Explicit non-goals for v1
