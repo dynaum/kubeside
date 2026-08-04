@@ -22,12 +22,14 @@ export function AppDetailScreen({
   namespace,
   workload,
   onNavigate,
+  onOpenFleet,
   onBack,
 }: {
   context: ContextView;
   namespace: string;
   workload: string;
   onNavigate: (screen: "config" | "logs" | "diff" | "exec") => void;
+  onOpenFleet: () => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<AppDetailView | null>(null);
@@ -154,6 +156,9 @@ export function AppDetailScreen({
           </button>
         </span>
         <button className="btn" onClick={() => onNavigate("logs")}>Logs</button>
+        <button className="btn" onClick={onOpenFleet} title="every context in your kubeconfig running this app">
+          Fleet
+        </button>
       </div>
 
       {confirmingForward && (

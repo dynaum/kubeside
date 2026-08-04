@@ -98,6 +98,13 @@ export function commands(
         hint: "what changed, and when",
         route: { screen: "app", context: current.name, namespace, workload },
       },
+      {
+        id: "action:fleet",
+        group: "Actions",
+        label: `${workload} across every cluster`,
+        hint: "asks every context in your kubeconfig",
+        route: { screen: "fleet", app: workload, namespace },
+      },
     );
   }
 

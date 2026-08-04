@@ -148,6 +148,7 @@ export function App() {
             onNavigate={(screen) =>
               go({ screen, context: current.name, namespace: route.namespace, workload: route.workload })
             }
+            onOpenFleet={() => go({ screen: "fleet", app: route.workload, namespace: route.namespace })}
             onBack={() => go({ screen: "apps", context: current.name })}
           />
         )}
