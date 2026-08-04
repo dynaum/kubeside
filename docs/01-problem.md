@@ -179,15 +179,29 @@ Assume Radar gets topology right. The kubeside wedge is narrower and different:
 the developer's four questions, resolved configuration, whole-workload logs, and
 the same application compared across environments.
 
+Argo CD came up first on the [Show HN thread](https://news.ycombinator.com/item?id=49139573)
+and it is a different kind of tool, not a missed competitor. It runs 1:1 against
+one cluster and shows sync state against git: is the live state what the repo
+says it should be. That is a delivery question, and its reader is the person who
+owns the pipeline. kubeside shows the app a developer owns across every
+environment it runs in, qa, stg, and prod side by side, which is a different
+question asked by a different reader. The two coexist rather than compete:
+kubeside already reads the `argocd.argoproj.io/instance` label as a grouping
+signal, documented in [03-product-spec.md](03-product-spec.md).
+
 ## Reference points
 
 | Tool | Stars | Open issues | License | Note |
 | --- | --- | --- | --- | --- |
 | k9s | 34,182 | 135 | Apache-2.0 | Terminal, single maintainer |
+| Argo CD | 23,835 | 4,318 | Apache-2.0 | GitOps delivery, 1:1 with the cluster, not a comparison |
 | kubernetes/dashboard | 15,427 | 166 | Apache-2.0 | Archived 2026-01-21 |
 | Headlamp | 6,920 | 834 | Apache-2.0 | SIG UI successor, auth-heavy backlog |
 | Freelens | 5,311 | 190 | MIT | Electron, Lens lineage, metrics bugs |
 | Kite | 2,937 | 39 | Apache-2.0 | Web, platform positioning |
 | Radar | 2,645 | 50 | Apache-2.0 | Topology and timeline, direct competitor |
 | KHI | 2,071 | 21 | Apache-2.0 | Google, log timeline only |
+
+Argo CD's row was read 2026-08-04, after the rest of this research; every other
+row still reflects 2026-07-22, as stated at the top of this document.
 </content>
