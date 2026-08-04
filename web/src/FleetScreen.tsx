@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type FleetRow, type FleetView } from "./api";
 import { Glyph } from "./Status";
 import { routeHash } from "./route";
-import type { EnvToken } from "./health";
+import { envToken, loudestEnv } from "./health";
 
 // Screen 7. Is every cluster running the latest version.
 //
@@ -13,21 +13,12 @@ import type { EnvToken } from "./health";
 // Five states, never conflated. A cluster behind a VPN is not a cluster
 // without the app, and rendering both blank would answer the screen's own
 // question with a guess.
-
-const KNOWN_ENVS = new Set(["qa", "stg", "prod"]);
-
-// Row.env is a resolved environment name, not necessarily one of the four
-// design tokens: a context left unbound in the config file carries its own
-// name (or the config's own label) here. Anything that is not one of the
-// three classified tiers renders as unclassified, the same fallback the rest
-// of the app gives an environment nobody named.
-function fleetEnvToken(env: string): EnvToken {
-  return KNOWN_ENVS.has(env) ? (env as EnvToken) : "unc";
-}
-
-function fleetEnvLabel(env: string): string {
-  return KNOWN_ENVS.has(env) ? env : "unclassified";
-}
+//
+// Environment colour is read off the row, never derived from its name. The
+// backend classifies by keyword token and returns the name untouched, so
+// prod-us-east and production are red while spelling no tier this screen could
+// compare against. The chip prints the resolved name verbatim, the way every
+// other screen does, and data-env carries the colour.
 
 const NOT_PRESENT_LABEL: Record<string, string> = {
   unreachable: "no answer",
@@ -84,7 +75,11 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
         )}
 
         {view?.mutableTag && (
-          <div className="banner" style={{ marginBottom: "var(--s4)" }}>
+          <div
+            className="banner"
+            data-env={loudestEnv(view.rows.filter((r) => r.mutableTag).map((r) => ({ color: r.envColor, risk: r.envRisk })))}
+            style={{ marginBottom: "var(--s4)" }}
+          >
             <span className="st st-err"><i className="glyph" /></span>
             <span>
               <strong>One tag resolves to more than one digest.</strong> These clusters claim the same
@@ -93,7 +88,17 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
           </div>
         )}
 
-        {view && view.present === 0 && (
+        {view && view.clusters === 0 && (
+          <div className="empty">
+            <div className="head">No clusters to ask</div>
+            <div style={{ color: "var(--fg-3)" }}>
+              The kubeconfig names no contexts, so nothing was asked about {app}. A table of nothing would
+              read as an answer, and there is none yet.
+            </div>
+          </div>
+        )}
+
+        {view && view.clusters > 0 && view.present === 0 && (
           <div className="empty" style={{ marginBottom: "var(--s4)" }}>
             <div className="head">Not found in any of {view.clusters} clusters</div>
             <div style={{ color: "var(--fg-3)" }}>
@@ -102,7 +107,7 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
           </div>
         )}
 
-        {view && (
+        {view && view.clusters > 0 && (
           <>
             <div className="frame">
               <div className="frame-body">
@@ -118,14 +123,21 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
                   </thead>
                   <tbody>
                     {view.rows.map((r) => (
-                      <tr key={r.context} data-env={fleetEnvToken(r.env)} className="env-edge">
+                      <tr key={r.context} data-env={envToken({ color: r.envColor, risk: r.envRisk })} className="env-edge">
                         <td className="name">
                           {r.context}
                           {r.aliases && r.aliases.length > 0 && (
                             <span className="cell-meta">also {r.aliases.join(", ")}</span>
                           )}
+                          {/* The match is by identity, which strips the environment token, so
+                              a row can report a different namespace from the one asked for.
+                              Nothing else on the screen names it, and a substitution nobody
+                              sees is a substitution nobody can challenge. */}
+                          {r.namespace && r.namespace !== namespace && (
+                            <span className="cell-meta">in {r.namespace}, not {namespace}</span>
+                          )}
                         </td>
-                        <td><span className="env-chip">{fleetEnvLabel(r.env)}</span></td>
+                        <td><span className="env-chip">{r.env}</span></td>
                         <VersionCell r={r} />
                         <td>
                           <HealthCell r={r} />
@@ -143,10 +155,9 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--s4)", marginTop: "var(--s4)" }}>
               <div className="note">
                 <div className="note-title">Sorted by what needs attention</div>
-                <p>A mutable tag outranks everything, then a cluster that never answered, then one that is
-                behind, then one we are not allowed to read, then one present without a tag we can name, then
-                one still asking. An unread cluster beats a known-old one: the version you cannot see could be
-                worse than the one you can.</p>
+                <p>A mutable tag sits at the top, and below it the less a cluster told us the higher it sits:
+                the version you cannot see could be worse than the old one you can. A cluster the app is not
+                deployed to stays with the healthy ones, because that is a schedule and not a disagreement.</p>
               </div>
               <div className="note">
                 <div className="note-title">Four ways to have no version</div>
@@ -161,16 +172,31 @@ export function FleetScreen({ app, namespace }: { app: string; namespace: string
               </div>
               <div className="note">
                 <div className="note-title">Pending is not agreement</div>
-                <p>{view.digestUnverified ?? 0} present row{(view.digestUnverified ?? 0) === 1 ? "" : "s"} still{" "}
-                {(view.digestUnverified ?? 0) === 1 ? "has" : "have"} no digest, so {(view.digestUnverified ?? 0) === 1 ? "it counts" : "they count"} as
-                unverified rather than matching. A digest that never arrived cannot be evidence that two
-                clusters agree.</p>
+                <DigestNote count={view.digestUnverified ?? 0} />
               </div>
             </div>
           </>
         )}
       </div>
     </>
+  );
+}
+
+// A fleet with every digest resolved has no count to report, and printing
+// "0 present rows still have no digest" states a problem nobody has. The rule
+// still belongs on the screen, so it falls back to the rule itself.
+function DigestNote({ count }: { count: number }) {
+  if (count === 0) {
+    return (
+      <p>A present row whose digest never arrived counts as unverified rather than matching. A digest that
+      never arrived cannot be evidence that two clusters agree.</p>
+    );
+  }
+  const one = count === 1;
+  return (
+    <p>{count} present row{one ? "" : "s"} still {one ? "has" : "have"} no digest, so {one ? "it counts" : "they count"} as
+    unverified rather than matching. A digest that never arrived cannot be evidence that two clusters
+    agree.</p>
   );
 }
 

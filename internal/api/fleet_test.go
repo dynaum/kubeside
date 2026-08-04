@@ -367,6 +367,53 @@ func TestTwoNamespacesInOneClusterSayWhichOneWon(t *testing.T) {
 	}
 }
 
+// TestEveryRowCarriesTheEnvironmentColour pins the fact the UI cannot infer.
+//
+// environments.Classify matches by keyword token and returns the name it was
+// given, so "production", "staging" and "sandbox" are red, amber and green
+// while being none of the three tier strings a screen could compare against.
+// A UI left to guess from the name alone paints a prod cluster violet and calls
+// it unclassified, which is a false statement about the safety property
+// docs/04-multi-cluster.md makes environment colour carry.
+//
+// Every state path goes through one placement literal, so a cluster that never
+// answered and a cluster that refused to be read keep their colour too. Those
+// are the rows a developer most needs to place.
+func TestEveryRowCarriesTheEnvironmentColour(t *testing.T) {
+	s := serviceWithContexts(t, map[string]fakeCluster{
+		"prod-us-east": {env: "production", apps: []fakeApp{{name: "checkout", ns: "shop", image: "reg/checkout:v2.14.0"}}},
+		"staging-eks":  {env: "staging", unreachable: true},
+		"qa-cluster":   {env: "sandbox", refusedKinds: []string{"Deployment"}},
+		"dr-frankfurt": {env: "dr-frankfurt"},
+	})
+
+	v := s.Fleet("checkout", "shop")
+
+	for _, want := range []struct {
+		ctx, state, env, color, risk string
+	}{
+		{"prod-us-east", fleet.StatePresent, "production", "red", "high"},
+		{"staging-eks", fleet.StateUnreachable, "staging", "amber", "medium"},
+		{"qa-cluster", fleet.StateDenied, "sandbox", "green", "low"},
+		{"dr-frankfurt", fleet.StateAbsent, "dr-frankfurt", "violet", "high"},
+	} {
+		r := rowFor(t, v, want.ctx)
+		if r.State != want.state {
+			t.Errorf("%s state = %q, want %q", want.ctx, r.State, want.state)
+		}
+		if r.Env != want.env {
+			t.Errorf("%s env = %q, want %q: the resolved name travels untouched", want.ctx, r.Env, want.env)
+		}
+		if r.EnvColor != want.color {
+			t.Errorf("%s envColor = %q, want %q: the UI must not re-derive the tier from the name",
+				want.ctx, r.EnvColor, want.color)
+		}
+		if r.EnvRisk != want.risk {
+			t.Errorf("%s envRisk = %q, want %q", want.ctx, r.EnvRisk, want.risk)
+		}
+	}
+}
+
 // TestFleetSpendsTheTimeoutPerClusterNotAcrossThem pins what the flag means.
 // Four clusters that each take a moment must cost one moment, not four: a
 // serial sweep on one shared budget hands the last clusters an expired deadline

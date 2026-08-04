@@ -291,6 +291,11 @@ export interface FleetRow {
   context: string;
   clusterId: string;
   env: string;
+  // The backend's classification of that environment. The name alone cannot be
+  // classified here: it is matched by keyword token and returned untouched, so
+  // prod-us-east is red while spelling no tier the UI could compare against.
+  envColor?: string;
+  envRisk?: string;
   namespace?: string;
   state: string; // present, absent, denied, unreachable, pending
   reason?: string;

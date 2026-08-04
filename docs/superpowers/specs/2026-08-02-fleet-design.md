@@ -88,7 +88,15 @@ New package `internal/fleet`. One type carries one app in one cluster.
 type Placement struct {
 	Context   string // kubeconfig context name, personal and unstable
 	ClusterID string // API server URL, from kubeconfig.Context.Server
-	Env       string // resolved environment name, "unclassified" when unmatched
+	// Env is the resolved environment name, untouched: environments.Classify
+	// matches by keyword token and returns the name it was handed, so
+	// "prod-us-east" is high risk while spelling no tier a reader could
+	// compare against. EnvColor and EnvRisk carry that classification, so the
+	// UI maps a decision rather than re-deriving one from the string.
+	Env      string
+	EnvColor string // red | amber | green | violet
+	EnvRisk  string // low | medium | high, unknown collapsing to high
+
 	Namespace string
 
 	State  string // present | absent | denied | unreachable | pending

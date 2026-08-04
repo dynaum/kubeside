@@ -71,10 +71,16 @@ func (s *Service) placeApp(ctx context.Context, name, app, namespace, want strin
 	// instead would leave an unreachable duplicate with an empty
 	// ClusterID, which fails to merge with its reachable twin and
 	// inflates Clusters in exactly the case the merge exists to prevent.
+	// Colour and risk travel with the name on every path below, including the
+	// failure paths: a cluster that refused to answer is exactly the row a
+	// developer needs to place as prod at a glance, and the resolved name alone
+	// does not say so.
 	p := fleet.Placement{
 		Context:   name,
 		ClusterID: config.NormalizeURL(kctx.Server),
 		Env:       env.Name,
+		EnvColor:  env.Color,
+		EnvRisk:   env.Risk.String(),
 	}
 
 	if err := s.mgr.Connect(ctx, name); err != nil {

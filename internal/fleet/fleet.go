@@ -31,6 +31,14 @@ type Placement struct {
 	Context   string `json:"context"`
 	ClusterID string `json:"clusterId"`
 	Env       string `json:"env"`
+	// EnvColor and EnvRisk carry the classification the resolved name cannot.
+	// environments.Classify matches by keyword token and returns the name it
+	// was handed, so "prod-us-east" and "production" are red without spelling
+	// any tier a reader could compare against. Shipping the decision instead of
+	// the name keeps that rule in one language: a UI re-deriving it from the
+	// string disagrees with this binary the first time a keyword is added.
+	EnvColor  string `json:"envColor,omitempty"`
+	EnvRisk   string `json:"envRisk,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
 
 	State string `json:"state"`
