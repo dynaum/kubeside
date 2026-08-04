@@ -287,6 +287,43 @@ export interface PromotionView {
   unreachable?: string[];
 }
 
+export interface FleetRow {
+  context: string;
+  clusterId: string;
+  env: string;
+  namespace?: string;
+  state: string; // present, absent, denied, unreachable, pending
+  reason?: string;
+  image?: string;
+  tag?: string;
+  digest?: string;
+  digestPending?: boolean;
+  health?: string;
+  ready?: string;
+  revisionAt?: string;
+  // Other kubeconfig contexts pointing at this same cluster, merged into this row.
+  aliases?: string[];
+  behind?: boolean;
+  // This row's tag also resolves to a different digest on another cluster.
+  mutableTag?: boolean;
+  // The verdict sentence for this row, already composed by the backend.
+  note?: string;
+}
+
+export interface FleetView {
+  app: string;
+  namespace: string;
+  rows: FleetRow[];
+  newest?: string;
+  clusters: number;
+  present: number;
+  behind: number;
+  mutableTag?: boolean;
+  // Present rows whose digest never arrived, so cannot be ruled out of a
+  // mutable-tag match.
+  digestUnverified?: number;
+}
+
 export interface MetricsInfo {
   source: string;
   available: boolean;
@@ -350,6 +387,8 @@ export const api = {
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
   promotion: () => get<PromotionView>("/api/promotion"),
+  fleet: (app: string, namespace: string) =>
+    get<FleetView>(`/api/fleet?app=${encodeURIComponent(app)}&namespace=${encodeURIComponent(namespace)}`),
   gate: (req: {
     context: string;
     namespace: string;

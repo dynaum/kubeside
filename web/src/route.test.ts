@@ -31,4 +31,13 @@ describe("parseRoute", () => {
       screen: "logs", context: "arn:aws:eks:us-east-1/x", namespace: "team-a", workload: "check/out",
     });
   });
+
+  it("round-trips the fleet route", () => {
+    const r = { screen: "fleet", app: "checkout", namespace: "shop" } as const;
+    expect(parseRoute(routeHash(r))).toEqual(r);
+  });
+
+  it("falls back to apps when the fleet route is missing its app", () => {
+    expect(parseRoute("#fleet")).toEqual({ screen: "apps" });
+  });
 });

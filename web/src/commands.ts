@@ -162,7 +162,7 @@ export function commands(
 
 // routeTarget is the app the current screen is about, when it is about one.
 function routeTarget(route: Route): { namespace: string; workload: string } | null {
-  if (route.screen === "apps" || route.screen === "promotion") return null;
+  if (route.screen === "apps" || route.screen === "promotion" || route.screen === "fleet") return null;
   return { namespace: route.namespace, workload: route.workload };
 }
 

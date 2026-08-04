@@ -8,6 +8,7 @@ import { ConfigScreen } from "./ConfigScreen";
 import { DiffScreen } from "./DiffScreen";
 import { ExecScreen } from "./ExecScreen";
 import { PromotionScreen } from "./PromotionScreen";
+import { FleetScreen } from "./FleetScreen";
 import { envToken } from "./health";
 import { parseRoute, routeHash, type Route } from "./route";
 import { Palette } from "./Palette";
@@ -50,7 +51,7 @@ export function App() {
         // The current context leads; select it so the developer's usual
         // workspace renders first, unless a permalink named another.
         setRoute((r) => {
-          if (r.screen === "promotion") return r;
+          if (r.screen === "promotion" || r.screen === "fleet") return r;
           if (r.context && cs.some((c) => c.name === r.context)) return r;
           const cur = cs.find((c) => c.current) ?? cs[0];
           return cur ? { screen: "apps", context: cur.name } : r;
@@ -93,7 +94,7 @@ export function App() {
     );
   }
 
-  const current = route.screen === "promotion"
+  const current = route.screen === "promotion" || route.screen === "fleet"
     ? null
     : (contexts.find((c) => c.name === route.context) ?? null);
 
@@ -123,7 +124,10 @@ export function App() {
             }
           />
         )}
-        {route.screen !== "promotion" && !current && <NoSelection />}
+        {route.screen === "fleet" && (
+          <FleetScreen app={route.app} namespace={route.namespace} />
+        )}
+        {route.screen !== "promotion" && route.screen !== "fleet" && !current && <NoSelection />}
         {current && route.screen === "apps" && (
           <AppsScreen
             context={current}

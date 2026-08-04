@@ -8,7 +8,8 @@ export type Route =
   | { screen: "config"; context: string; namespace: string; workload: string }
   | { screen: "exec"; context: string; namespace: string; workload: string }
   | { screen: "diff"; context: string; namespace: string; workload: string; other?: string }
-  | { screen: "logs"; context: string; namespace: string; workload: string };
+  | { screen: "logs"; context: string; namespace: string; workload: string }
+  | { screen: "fleet"; app: string; namespace: string };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
@@ -21,6 +22,9 @@ export function parseRoute(hash: string): Route {
       screen: parts[0] as "logs" | "app" | "config" | "exec",
       context: parts[1], namespace: parts[2], workload: parts[3],
     };
+  }
+  if (parts[0] === "fleet" && parts.length >= 3) {
+    return { screen: "fleet", app: parts[1], namespace: parts[2] };
   }
   if (parts[0] === "apps" && parts.length >= 2) {
     return { screen: "apps", context: parts[1] };
@@ -38,5 +42,6 @@ export function routeHash(r: Route): string {
     return `#${r.screen}/${enc(r.context)}/${enc(r.namespace)}/${enc(r.workload)}`;
   }
   if (r.screen === "promotion") return "#promotion";
+  if (r.screen === "fleet") return `#fleet/${enc(r.app)}/${enc(r.namespace)}`;
   return r.context ? `#apps/${enc(r.context)}` : "#apps";
 }
