@@ -10,7 +10,13 @@ import { age } from "./detail";
 // because deploying belongs to the pipeline that owns it, and a bulk action
 // across environments is precisely the button nobody should have.
 
-export function PromotionScreen({ onOpenApp }: { onOpenApp: (context: string, namespace: string, workload: string) => void }) {
+export function PromotionScreen({
+  onOpenApp,
+  onOpenFleet,
+}: {
+  onOpenApp: (context: string, namespace: string, workload: string) => void;
+  onOpenFleet: (app: string, namespace: string) => void;
+}) {
   const [view, setView] = useState<PromotionView | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -34,6 +40,7 @@ export function PromotionScreen({ onOpenApp }: { onOpenApp: (context: string, na
         {view && (
           <span style={{ color: "var(--fg-4)", fontSize: "var(--fs-label)" }}>
             {view.summary.apps} apps · {view.summary.drifted} with drift · {view.summary.ahead} ahead of upstream
+            {view.summary.split > 0 && ` · ${view.summary.split} split across clusters`}
           </span>
         )}
       </div>
@@ -88,7 +95,11 @@ export function PromotionScreen({ onOpenApp }: { onOpenApp: (context: string, na
                           <td className="cell" key={c.env}>
                             <CellBody
                               cell={c}
-                              onOpen={() => onOpenApp(view.envs[i]?.context ?? "", c.namespace ?? r.namespace, r.app)}
+                              onOpen={() =>
+                                c.state === "split"
+                                  ? onOpenFleet(r.app, c.namespace ?? r.namespace)
+                                  : onOpenApp(view.envs[i]?.context ?? "", c.namespace ?? r.namespace, r.app)
+                              }
                             />
                           </td>
                         ))}
@@ -137,6 +148,23 @@ function CellBody({ cell: c, onOpen }: { cell: PromotionCell; onOpen: () => void
       <>
         <span className="cell-denied">no access</span>
         <span className="cell-meta">{c.note}</span>
+      </>
+    );
+  }
+  if (c.state === "split") {
+    // A split cell carries no tag: picking one is the guess this state exists
+    // to prevent. The note is composed by the backend and rendered verbatim.
+    return (
+      <>
+        <span
+          className="cell-tag"
+          style={{ color: "var(--err)", cursor: "pointer" }}
+          onClick={onOpen}
+          title={c.note}
+        >
+          {c.note}
+        </span>
+        {c.clusters ? <span className="cell-meta">{c.clusters} clusters</span> : null}
       </>
     );
   }

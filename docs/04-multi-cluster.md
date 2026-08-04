@@ -18,8 +18,12 @@ Three concepts, deliberately separate.
 | App | A logical service, present in zero or more environments. Identity is namespace plus name within a cluster, matched across environments by the rules below. |
 
 One environment maps to one or more contexts. A team running prod across two
-regions gets one `prod` environment holding `prod-us-east` and `prod-eu-west`,
-and the promotion view aggregates them with per-context detail on expansion.
+regions gets one `prod` environment holding `prod-us-east` and `prod-eu-west`.
+The promotion cell for that environment collapses to one version only when
+every context inside it agrees on tag and digest. When they disagree, the cell
+renders `split` and names the disagreement instead of guessing at a version.
+Per-context detail lives on its own screen, fleet: one app, one row per
+cluster, opened from the split cell or from the app detail screen.
 
 ### An environment is not always a context
 
@@ -328,10 +332,10 @@ cluster behind a VPN never blocks the rest of the grid.
 | --- | --- |
 | Prod reachable only over VPN, currently off | Two states, never conflated. Connected earlier this session: in-memory snapshot with its age. Never connected this session: "nothing known yet" with a reconnect action. Other environments unaffected either way. |
 | Credential plugin prompts for SSO in a browser | Inline prompt on the panel. No modal blocking the whole app. |
-| Two contexts point at the same cluster | Detected by API server URL and cluster UID, merged with a notice. |
-| Context renamed in kubeconfig | Match on cluster UID first, name second, so history survives a rename. |
+| Two contexts point at the same cluster | Detected by API server URL alone (`config.NormalizeURL`), merged with a notice. No cluster UID exists anywhere in kubeside: reading one needs `get` on a `kube-system` namespace object, a permission kubeside does not request and a namespace-scoped developer would be refused for asking. |
+| Context renamed in kubeconfig | Environment classification matches on API server URL first, context name second (`Config.Environment`), so a rename keeps its environment and guardrails. There is no stored history for a rename to survive: kubeside writes nothing to disk, and the timeline is reconstructed from the live cluster on every read. |
 | Same app name, unrelated services in two environments | Config `apps.match` overrides. A mismatch warning appears when image repositories differ entirely. |
-| An environment has 40 contexts | Environment panel paginates and the promotion view aggregates, with per-context detail on expansion. |
+| An environment has 40 contexts | Environment panel paginates. The promotion cell for it collapses only if all 40 agree; otherwise it splits. Fleet lists all 40 with their own state. |
 
 ## Resolved questions
 

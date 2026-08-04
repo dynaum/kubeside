@@ -70,6 +70,23 @@ test("promotion matrix", async ({ page }) => {
   await expect(page).toHaveScreenshot("promotion.png", { fullPage: true });
 });
 
+test("fleet", async ({ page }) => {
+  await page.goto(`/${token}#fleet/payments/team-a`);
+  await expect(page.getByRole("heading", { name: "payments" })).toBeVisible();
+  await expect(page.locator("table.tbl tbody tr")).toHaveCount(5);
+  // Unreachable and denied are different facts and must read differently, not
+  // as two spellings of "no answer".
+  await expect(page.locator("table.tbl tbody tr", { hasText: "prod-eu-west" })).toContainText("no answer");
+  await expect(page.locator("table.tbl tbody tr", { hasText: "stg1" })).toContainText("no access");
+  // A cluster the app is not deployed to is neither: a plain dash, no note.
+  await expect(page.locator("table.tbl tbody tr", { hasText: "dr-frankfurt" }).locator(".cell-none")).toHaveCount(2);
+  // The row behind the newest tag says so, and the env chip for a resolved
+  // name like prod-us-east fits its column rather than pushing Verdict out of
+  // place.
+  await expect(page.locator("table.tbl tbody tr", { hasText: "prod-us-east" })).toContainText("behind");
+  await expect(page).toHaveScreenshot("fleet.png", { fullPage: true });
+});
+
 test("command palette", async ({ page }) => {
   await page.goto(`/${token}#apps/qa1`);
   await expect(page.locator("table.tbl tbody tr")).toHaveCount(4);

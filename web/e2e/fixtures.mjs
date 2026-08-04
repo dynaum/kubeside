@@ -142,6 +142,47 @@ export const promotionView = {
   summary: { apps: 4, drifted: 3, ahead: 1 },
 };
 
+// One row per reachable state the fleet screen distinguishes: present (one
+// healthy and current, one present but behind with its digest still
+// unverified), absent, denied, and unreachable. Pending has no producer from
+// Service.Fleet by construction, so it is not represented here.
+export const fleetView = {
+  app: "payments", namespace: "team-a",
+  newest: "v1.8.2", clusters: 5, present: 2, behind: 1, mutableTag: false, digestUnverified: 1,
+  rows: [
+    {
+      context: "qa1", clusterId: "qa1", env: "qa", envColor: "green", envRisk: "low",
+      namespace: "team-a", state: "present",
+      image: "ghcr.io/acme/payments:1.8.2", tag: "v1.8.2",
+      digest: "sha256:aaaa000000000000000000000000000000000000000000000000000000000000",
+      health: "healthy", ready: "2/2", revisionAt: "2026-07-24T09:00:00Z", behind: false,
+    },
+    {
+      // The env column prints the resolved name verbatim rather than a
+      // qa/stg/prod token, and this is the row the layout bug lived on:
+      // "prod-us-east" uppercase with .09em tracking overflowed the old
+      // 84px Env column and pushed Verdict out of place.
+      context: "prod-us-east", clusterId: "prod-us-east", env: "prod-us-east", envColor: "red", envRisk: "high",
+      namespace: "team-a", state: "present",
+      image: "ghcr.io/acme/payments:1.8.0", tag: "v1.8.0", digestPending: true,
+      health: "degraded", ready: "5/6", revisionAt: "2026-07-14T09:12:00Z",
+      behind: true, note: "behind v1.8.2",
+    },
+    {
+      context: "prod-eu-west", clusterId: "", env: "prod-eu-west", envColor: "red", envRisk: "high",
+      state: "unreachable", note: "the cluster did not answer",
+    },
+    {
+      context: "stg1", clusterId: "stg1", env: "stg", envColor: "amber", envRisk: "medium",
+      state: "denied", note: "list deployments forbidden; ask for list deployments in team-a",
+    },
+    {
+      context: "dr-frankfurt", clusterId: "dr-frankfurt", env: "dr-frankfurt", envColor: "violet", envRisk: "high",
+      namespace: "team-a", state: "absent", note: "not deployed here",
+    },
+  ],
+};
+
 export const capabilities = {
   context: "qa1", namespace: "team-a",
   can: {

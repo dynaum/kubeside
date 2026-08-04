@@ -36,6 +36,21 @@ describe("commands", () => {
     expect(some.filter((c) => c.group === "Actions").length).toBeGreaterThan(2);
   });
 
+  // The fleet view is about one app; a command that opens it with nothing in
+  // hand would be a dead end, so it only appears when a screen names one.
+  it("offers fleet for the app in hand", () => {
+    const list = commands([], ctx("prod", "prod"), [], appRoute);
+    const fleet = list.find((c) => c.id === "action:fleet");
+    expect(fleet).toBeTruthy();
+    expect(fleet!.label.toLowerCase()).toContain("cluster");
+    expect(fleet!.route).toEqual({ screen: "fleet", app: "payments", namespace: "team-a" });
+  });
+
+  it("hides fleet when no app is selected", () => {
+    const list = commands([], ctx("prod", "prod"), [], appsRoute);
+    expect(list.find((c) => c.id === "action:fleet")).toBeUndefined();
+  });
+
   it("offers the other environments as switches", () => {
     const list = commands([ctx("prod", "prod"), ctx("stg", "stg")], ctx("prod", "prod"), [], appsRoute);
     const envs = list.filter((c) => c.group === "Environments");

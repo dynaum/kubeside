@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/dynaum/kubeside/internal/exec"
+	"github.com/dynaum/kubeside/internal/fleet"
 	"github.com/dynaum/kubeside/internal/forward"
 	"github.com/dynaum/kubeside/internal/guard"
 	"github.com/dynaum/kubeside/internal/logs"
@@ -111,6 +112,10 @@ func (s *streamStub) Promotion() PromotionView {
 		{Env: "prod", App: "checkout", Namespace: "team-a", Present: true, Tag: "v1"},
 	})
 	return PromotionView{Envs: envs, Rows: rows, Summary: promotion.Summarize(rows)}
+}
+
+func (s *streamStub) Fleet(app, namespace string) fleet.View {
+	return fleet.View{App: app, Namespace: namespace}
 }
 
 func (s *streamStub) StartForward(req ForwardRequest) (forward.Forward, error) {

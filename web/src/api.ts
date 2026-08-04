@@ -260,7 +260,7 @@ export interface GateView {
 export interface PromotionCell {
   env: string;
   namespace?: string;
-  state: string; // same, behind, ahead, differs, digest-differs, absent, denied
+  state: string; // same, behind, ahead, differs, digest-differs, absent, denied, split
   tag?: string;
   image?: string;
   digest?: string;
@@ -270,6 +270,9 @@ export interface PromotionCell {
   revisionAt?: string;
   note?: string;
   severe?: boolean;
+  // Clusters is how many contexts back this cell. Set on split (and other)
+  // cells; the UI shows the count only above one.
+  clusters?: number;
 }
 
 export interface PromotionRow {
@@ -281,10 +284,61 @@ export interface PromotionRow {
 }
 
 export interface PromotionView {
-  envs: { name: string; risk: string; context?: string }[];
+  envs: {
+    name: string;
+    risk: string;
+    context?: string;
+    // Contexts is every context bound to this environment. Unreadable names
+    // the ones that did not answer; a column with any of those can never
+    // claim agreement, because the clusters nobody read might disagree.
+    contexts?: string[];
+    unreadable?: string[];
+  }[];
   rows: PromotionRow[];
-  summary: { apps: number; drifted: number; ahead: number };
+  summary: { apps: number; drifted: number; ahead: number; split: number };
   unreachable?: string[];
+}
+
+export interface FleetRow {
+  context: string;
+  clusterId: string;
+  env: string;
+  // The backend's classification of that environment. The name alone cannot be
+  // classified here: it is matched by keyword token and returned untouched, so
+  // prod-us-east is red while spelling no tier the UI could compare against.
+  envColor?: string;
+  envRisk?: string;
+  namespace?: string;
+  state: string; // present, absent, denied, unreachable, pending
+  reason?: string;
+  image?: string;
+  tag?: string;
+  digest?: string;
+  digestPending?: boolean;
+  health?: string;
+  ready?: string;
+  revisionAt?: string;
+  // Other kubeconfig contexts pointing at this same cluster, merged into this row.
+  aliases?: string[];
+  behind?: boolean;
+  // This row's tag also resolves to a different digest on another cluster.
+  mutableTag?: boolean;
+  // The verdict sentence for this row, already composed by the backend.
+  note?: string;
+}
+
+export interface FleetView {
+  app: string;
+  namespace: string;
+  rows: FleetRow[];
+  newest?: string;
+  clusters: number;
+  present: number;
+  behind: number;
+  mutableTag?: boolean;
+  // Present rows whose digest never arrived, so cannot be ruled out of a
+  // mutable-tag match.
+  digestUnverified?: number;
 }
 
 export interface MetricsInfo {
@@ -350,6 +404,8 @@ export const api = {
   reveal: (context: string, namespace: string, secret: string, key: string, workload: string) =>
     post<RevealView>("/api/secret", { context, namespace, secret, key, workload }),
   promotion: () => get<PromotionView>("/api/promotion"),
+  fleet: (app: string, namespace: string) =>
+    get<FleetView>(`/api/fleet?app=${encodeURIComponent(app)}&namespace=${encodeURIComponent(namespace)}`),
   gate: (req: {
     context: string;
     namespace: string;

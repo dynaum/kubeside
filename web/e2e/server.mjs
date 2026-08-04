@@ -36,6 +36,7 @@ const server = createServer(async (req, res) => {
       case "/api/app": return json(res, fx.appDetail);
       case "/api/config": return json(res, fx.configView);
       case "/api/promotion": return json(res, fx.promotionView);
+      case "/api/fleet": return json(res, fx.fleetView);
       case "/api/can": return json(res, fx.capabilities);
       case "/api/forwards": return json(res, fx.forwards);
       case "/api/timeline": return json(res, fx.appDetail.timeline);

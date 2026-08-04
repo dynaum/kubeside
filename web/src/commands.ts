@@ -98,6 +98,13 @@ export function commands(
         hint: "what changed, and when",
         route: { screen: "app", context: current.name, namespace, workload },
       },
+      {
+        id: "action:fleet",
+        group: "Actions",
+        label: `${workload} across every cluster`,
+        hint: "asks every context in your kubeconfig",
+        route: { screen: "fleet", app: workload, namespace },
+      },
     );
   }
 
@@ -162,7 +169,7 @@ export function commands(
 
 // routeTarget is the app the current screen is about, when it is about one.
 function routeTarget(route: Route): { namespace: string; workload: string } | null {
-  if (route.screen === "apps" || route.screen === "promotion") return null;
+  if (route.screen === "apps" || route.screen === "promotion" || route.screen === "fleet") return null;
   return { namespace: route.namespace, workload: route.workload };
 }
 

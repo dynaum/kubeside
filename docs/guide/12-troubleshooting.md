@@ -83,3 +83,27 @@ manages your RBAC. See [permissions](11-permissions.html).
 Look for the edge. `ended` means the container exited, `gone` means the pod was
 deleted, `error` carries the reason. A log view that simply went quiet would be
 the failure worth worrying about.
+
+## Is there a TUI, like k9s?
+
+No, and this is a decision, not an oversight. Asked on the same
+[Show HN thread](https://news.ycombinator.com/item?id=49139573) that raised the
+Argo CD question.
+
+The four questions kubeside answers are layout problems before they are
+anything else. A timeline needs a horizontal axis with markers on it. A
+side-by-side config diff needs two columns a reader can scan against each
+other. A promotion matrix needs a grid with color and drift indicators. A
+monospace grid renders none of them well, and forcing them into one would
+mean designing worse versions of screens that already work in a browser.
+
+k9s also already owns the terminal, and it does that job well. Competing with
+it on keyboard speed would be a fight against a tool people already like,
+over ground kubeside does not need.
+
+If your kubeconfig is not local, for example a shared cluster with no kubectl
+access from your machine, `--serve` mode is the answer. It runs the same
+binary and the same screens against the cluster directly, over OIDC. It is
+listed under Beyond v1 in
+[the roadmap](https://github.com/dynaum/kubeside/blob/main/docs/06-roadmap.md)
+and has not shipped yet.

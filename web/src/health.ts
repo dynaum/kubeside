@@ -30,3 +30,18 @@ const BY_RISK: Record<string, EnvToken> = {
 export function envToken(env: { color?: string; risk?: string }): EnvToken {
   return BY_COLOR[env.color ?? ""] ?? BY_RISK[env.risk ?? ""] ?? "unc";
 }
+
+// One warning can name several clusters at once, and it belongs to the loudest
+// of them rather than to whichever environment the shell happens to be in.
+//
+// Unclassified outranks the tiers below it, because it carries prod-strength
+// styling everywhere else in the app. A cluster the backend did classify as
+// prod still wins: when a red cluster is in the set, red is the edge that
+// reads. An empty set is unclassified, never safe.
+const LOUDNESS: Record<EnvToken, number> = { prod: 3, unc: 2, stg: 1, qa: 0 };
+
+export function loudestEnv(envs: { color?: string; risk?: string }[]): EnvToken {
+  const tokens = envs.map(envToken);
+  if (tokens.length === 0) return "unc";
+  return tokens.reduce((a, b) => (LOUDNESS[b] > LOUDNESS[a] ? b : a));
+}
